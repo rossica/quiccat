@@ -32,8 +32,7 @@ struct QcConnection {
     CXPLAT_EVENT SendCompleteEvent;
     QUIC_BUFFER SendQuicBuffer;
     uint64_t FileSize = 0;
-    uint32_t IdealSendSize = DefaultSendBufferSize;
-    uint32_t CurrentSendSize;
+    uint32_t CurrentSendSize = DefaultSendBufferSize;
     bool SendCanceled = false;
 };
 
@@ -114,12 +113,6 @@ QcFileSendStreamCallback(
             Connection->SendCanceled = true;
         }
         CxPlatEventSet(Connection->SendCompleteEvent);
-        break;
-    case QUIC_STREAM_EVENT_IDEAL_SEND_BUFFER_SIZE:
-        if (Connection->IdealSendSize != Event->IDEAL_SEND_BUFFER_SIZE.ByteCount) {
-            //cout << "ISB changed; was: " << Connection->IdealSendSize << " now: " << Event->IDEAL_SEND_BUFFER_SIZE.ByteCount << endl;
-            Connection->IdealSendSize = Event->IDEAL_SEND_BUFFER_SIZE.ByteCount;
-        }
         break;
     default:
         break;
@@ -491,7 +484,7 @@ int main(
             return QUIC_STATUS_INTERNAL_ERROR;
         }
 
-        ConnectionContext.CurrentSendSize = ConnectionContext.IdealSendSize;
+        ConnectionContext.CurrentSendSize = DefaultSendBufferSize;
         ConnectionContext.SendBuffer = make_unique<uint8_t[]>(ConnectionContext.CurrentSendSize);
         ConnectionContext.SendQuicBuffer.Buffer = ConnectionContext.SendBuffer.get();
         uint8_t* BufferCursor = ConnectionContext.SendQuicBuffer.Buffer;
@@ -557,11 +550,6 @@ int main(
                 if (EndOfFile) {
                     cout << endl;
                 }
-            }
-            if (ConnectionContext.IdealSendSize != ConnectionContext.CurrentSendSize) {
-                ConnectionContext.CurrentSendSize = ConnectionContext.IdealSendSize;
-                ConnectionContext.SendBuffer = make_unique<uint8_t[]>(ConnectionContext.CurrentSendSize);
-                ConnectionContext.SendQuicBuffer.Buffer = ConnectionContext.SendBuffer.get();
             }
             BufferCursor = ConnectionContext.SendBuffer.get();
             ConnectionContext.SendQuicBuffer.Length = 0;
