@@ -53,7 +53,7 @@ PrintProgress(
     _In_ const steady_clock::duration RateTime
     )
 {
-    static const int ProgressBarWidth = 48;
+    static const int ProgressBarWidth = 40;
     const float ProgressFraction = (float)BytesComplete / BytesTotal;
     const auto BytesRemaining = BytesComplete < BytesTotal ? BytesTotal - BytesComplete : 0;
     const auto EstimatedRemaining = (ElapsedTime / BytesComplete) * BytesRemaining;
@@ -93,6 +93,34 @@ PrintProgress(
     cout.flush();
 }
 
+void
+PrintTransferSummary(
+    _In_ const steady_clock::time_point StartTime,
+    _In_ const steady_clock::time_point StopTime,
+    _In_ const uint64_t BytesTransferred,
+    _In_ const char* DirectionStr
+    )
+{
+    auto ElapsedTime = StopTime - StartTime;
+    auto RateBps =
+        (BytesTransferred * 8.0 * steady_clock::duration::period::den) /
+        (ElapsedTime.count() * steady_clock::duration::period::num);
+        // ((BytesTransferred * 8.0) /
+        // (ElapsedTime.count() * steady_clock::duration::period::num)) * steady_clock::duration::period::den;
+    cout << dec << BytesTransferred << " bytes " << DirectionStr << " in "
+        << duration_cast<seconds>(ElapsedTime) << " "
+        << duration_cast<milliseconds>(ElapsedTime) - duration_cast<seconds>(ElapsedTime);
+    if (RateBps >= 1000000000) {
+        cout << " (" << setprecision(4) << RateBps / 1000000000.0 << "Gbps)" << endl;
+    } else if (RateBps >= 1000000) {
+        cout << " (" << setprecision(4) << RateBps / 1000000.0 << "Mbps)" << endl;
+    } else if (RateBps >= 1000) {
+        cout << " (" << setprecision(4) << RateBps / 1000.0 << "Kbps)" << endl;
+    } else {
+        cout << " (" << RateBps << "bps)" << endl;
+    }
+}
+
 QUIC_STATUS
 QcFileSendStreamCallback(
     _In_ MsQuicStream* Stream,
@@ -113,6 +141,9 @@ QcFileSendStreamCallback(
             Connection->SendCanceled = true;
         }
         CxPlatEventSet(Connection->SendCompleteEvent);
+        break;
+    case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
+        Connection->Connection->Shutdown(QUIC_STATUS_SUCCESS);
         break;
     default:
         break;
@@ -212,6 +243,7 @@ QcFileRecvStreamCallback(
             }
         }
         if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
+            Connection->EndTime = Now;
             Connection->DestinationFile.flush();
             Connection->DestinationFile.close();
             CxPlatEventSet(Connection->SendCompleteEvent);
@@ -240,7 +272,6 @@ QcServerConnectionCallback(
         CxPlatEventSet(ConnContext->Listener->ConnectionReceivedEvent);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
-        cout << "Shutdown complete!" << endl;
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         ConnContext->Stream =
@@ -278,12 +309,6 @@ QcClientConnectionCallback(
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         CxPlatEventSet(ConnContext->ConnectionShutdownEvent);
-        break;
-    case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
-        cout << "Peer stream started!" << endl;
-        break;
-    case QUIC_CONNECTION_EVENT_PEER_NEEDS_STREAMS:
-        cout << "Needs streams!" << endl;
         break;
     case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
         if (!QcVerifyCertificate(
@@ -325,11 +350,10 @@ QcListenerCallback(
         }
         return QUIC_STATUS_SUCCESS;
     } else if (Event->Type == QUIC_LISTENER_EVENT_STOP_COMPLETE) {
-        cout << "Listener stopped" << endl;
         return QUIC_STATUS_SUCCESS;
     } else {
         cout << "Unhandled Listener Event: " << hex << Event->Type << endl;
-        return QUIC_STATUS_INTERNAL_ERROR;
+        return QUIC_STATUS_SUCCESS;
     }
 }
 
@@ -444,6 +468,11 @@ int main(
         }
         CxPlatEventWaitForever(ListenerContext.ConnectionReceivedEvent);
         CxPlatEventWaitForever(ListenerContext.ConnectionContext.SendCompleteEvent);
+        PrintTransferSummary(
+            ListenerContext.ConnectionContext.StartTime,
+            ListenerContext.ConnectionContext.EndTime,
+            ListenerContext.ConnectionContext.BytesReceived,
+            "received");
 
     } else if (TargetAddress != nullptr) {
         // client
@@ -474,6 +503,7 @@ int main(
         }
         MsQuicConfiguration Config(Registration, Alpn, Settings, Creds);
         MsQuicConnection Client(Registration, CleanUpManual, QcClientConnectionCallback, &ConnectionContext);
+        ConnectionContext.Connection = &Client;
         MsQuicStream ClientStream(Client, QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL, CleanUpManual, QcFileSendStreamCallback, &ConnectionContext);
         if (QUIC_FAILED(ClientStream.Start(QUIC_STREAM_START_FLAG_SHUTDOWN_ON_FAIL))) {
             cout << "Failed to start stream!" << endl;
@@ -556,26 +586,8 @@ int main(
             BufferRemaining = ConnectionContext.CurrentSendSize;
         } while (!ConnectionContext.SendCanceled && !EndOfFile);
         auto StopTime = steady_clock::now();
-        auto ElapsedTime = StopTime - StartTime;
-        auto SendRateBps =
-            (TotalBytesSent * 8.0 * steady_clock::duration::period::den) /
-            (ElapsedTime.count() * steady_clock::duration::period::num);
-            // ((TotalBytesSent * 8.0) /
-            // (ElapsedTime.count() * steady_clock::duration::period::num)) * steady_clock::duration::period::den;
-        cout << dec << TotalBytesSent << " bytes sent in "
-            << duration_cast<seconds>(ElapsedTime) << " "
-            << duration_cast<milliseconds>(ElapsedTime) - duration_cast<seconds>(ElapsedTime);
-        if (SendRateBps >= 1000000000) {
-            cout << " (" << setprecision(4) << SendRateBps / 1000000000.0 << "Gbps)" << endl;
-        } else if (SendRateBps >= 1000000) {
-            cout << " (" << setprecision(4) << SendRateBps / 1000000.0 << "Mbps)" << endl;
-        } else if (SendRateBps >= 1000) {
-            cout << " (" << setprecision(4) << SendRateBps / 1000.0 << "Kbps)" << endl;
-        } else {
-            cout << " (" << SendRateBps << "bps)" << endl;
-        }
+        PrintTransferSummary(StartTime, StopTime, TotalBytesSent, "sent");
 
-        Client.Shutdown(QUIC_STATUS_SUCCESS);
         cout << "Press any key to exit..." << endl;
         getchar();
     } else {
