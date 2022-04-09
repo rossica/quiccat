@@ -5,16 +5,21 @@ using namespace std::chrono;
 
 const uint32_t DefaultSendBufferSize = 128 * 1024;
 const uint32_t MaxFileNameLength = 255;
+const uint32_t RandomPasswordLength = 64;
 const auto UpdateRate = milliseconds(500);
 
 const MsQuicApi* MsQuic;
 
 const MsQuicAlpn Alpn("quiccat");
 
+typedef struct QcListener QcListener;
+
 struct QcConnection {
     MsQuicConnection* Connection;
     MsQuicStream* Stream;
+    QcListener* Listener;
     CXPLAT_EVENT ConnectionShutdownEvent;
+    string Password;
     ofstream DestinationFile;
     filesystem::path DestinationPath;
     string FileName;
@@ -33,7 +38,6 @@ struct QcConnection {
 };
 
 struct QcListener {
-    MsQuicConnection* Connection;
     MsQuicConfiguration* Config;
     MsQuicListener* Listener;
     CXPLAT_EVENT ConnectionReceivedEvent;
@@ -210,11 +214,13 @@ QcFileRecvStreamCallback(
                 Now - Connection->LastUpdate);
             Connection->LastUpdate = Now;
             Connection->BytesReceivedSnapshot = Connection->BytesReceived;
+            if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
+                cout << endl;
+            }
         }
         if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
             Connection->DestinationFile.flush();
             Connection->DestinationFile.close();
-            cout << endl;
             CxPlatEventSet(Connection->SendCompleteEvent);
         }
         break;
@@ -237,15 +243,29 @@ QcServerConnectionCallback(
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
         cout << "Connected!" << endl;
+        MsQuic->ListenerStop(*ConnContext->Listener->Listener);
+        CxPlatEventSet(ConnContext->Listener->ConnectionReceivedEvent);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         cout << "Shutdown complete!" << endl;
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
-        ConnContext->Stream = new(nothrow) MsQuicStream(Event->PEER_STREAM_STARTED.Stream, CleanUpAutoDelete, QcFileRecvStreamCallback, Context);
+        ConnContext->Stream =
+            new(nothrow) MsQuicStream(
+                Event->PEER_STREAM_STARTED.Stream,
+                CleanUpAutoDelete,
+                QcFileRecvStreamCallback,
+                Context);
         break;
     case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
-        cout << "Cert received!" << endl;
+        if (!QcVerifyCertificate(
+            ConnContext->Password,
+            Event->PEER_CERTIFICATE_RECEIVED.Certificate)) {
+            cout << "Peer password doesn't match!" << endl;
+            return QUIC_STATUS_CONNECTION_REFUSED;
+        }
+        break;
+    default:
         break;
     }
     return QUIC_STATUS_SUCCESS;
@@ -273,7 +293,12 @@ QcClientConnectionCallback(
         cout << "Needs streams!" << endl;
         break;
     case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
-        cout << "Cert received!" << endl;
+        if (!QcVerifyCertificate(
+            ConnContext->Password,
+            Event->PEER_CERTIFICATE_RECEIVED.Certificate)) {
+            cout << "Peer password doesn't match!" << endl;
+            return QUIC_STATUS_CONNECTION_REFUSED;
+        }
         break;
     default:
         break;
@@ -298,15 +323,13 @@ QcListenerCallback(
                 CleanUpAutoDelete,
                 QcServerConnectionCallback,
                 &ListenerContext->ConnectionContext);
-        ListenerContext->Connection = Conn;
+        ListenerContext->ConnectionContext.Listener = ListenerContext;
         ListenerContext->ConnectionContext.Connection = Conn;
         QUIC_STATUS Status = Conn->SetConfiguration(*ListenerContext->Config);
         if (QUIC_FAILED(Status)) {
             cout << "Failed to set configuration on connection: " << hex << Status << endl;
             return QUIC_STATUS_CONNECTION_REFUSED;
         }
-        MsQuic->ListenerStop(*ListenerContext->Listener);
-        CxPlatEventSet(ListenerContext->ConnectionReceivedEvent);
         return QUIC_STATUS_SUCCESS;
     } else if (Event->Type == QUIC_LISTENER_EVENT_STOP_COMPLETE) {
         cout << "Listener stopped" << endl;
@@ -333,6 +356,7 @@ int main(
     const char* TargetAddress;
     const char* FilePath = nullptr;
     const char* DestinationPath = nullptr;
+    const char* Password = nullptr;
     uint16_t Port = 0;
     MsQuicConnection* ServerConnection = nullptr;
     QUIC_ADDR LocalAddr;
@@ -346,6 +370,7 @@ int main(
     }
     TryGetValue(argc, argv, "file", &FilePath);
     TryGetValue(argc, argv, "destination", &DestinationPath);
+    TryGetValue(argc, argv, "password", &Password);
 
     if (TargetAddress && ListenAddress) {
         cout << "Can't set both listen and target addresses!" << endl;
@@ -364,7 +389,7 @@ int main(
         return QUIC_STATUS_INVALID_PARAMETER;
     }
 
-    MsQuicRegistration Registration;
+    MsQuicRegistration Registration("quiccat", QUIC_EXECUTION_PROFILE_TYPE_MAX_THROUGHPUT);
     if (!Registration.IsValid()) {
         cout << "Registration failed to open with " << hex << Registration.GetInitStatus() << endl;
         return QUIC_STATUS_INTERNAL_ERROR;
@@ -381,9 +406,21 @@ int main(
         unique_ptr<uint8_t[]> Pkcs12;
         MsQuicCredentialConfig Creds;
         QUIC_CERTIFICATE_PKCS12 Pkcs12Info{};
-        char Password[64];
-        CxPlatRandom(sizeof Password, Password);
-        if (!QcGenerateAuthCertificate(Password, Pkcs12, Pkcs12Length)) {
+        string TempPassword;
+        QUIC_CREDENTIAL_FLAGS Flags = QUIC_CREDENTIAL_FLAG_NONE;
+        if (Password != nullptr) {
+            ListenerContext.ConnectionContext.Password = string(Password);
+            TempPassword = string(Password);
+            Flags |=
+                QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED
+                | QUIC_CREDENTIAL_FLAG_REQUIRE_CLIENT_AUTHENTICATION
+                | QUIC_CREDENTIAL_FLAG_DEFER_CERTIFICATE_VALIDATION;
+        } else {
+            char RandomPassword[RandomPasswordLength];
+            CxPlatRandom(sizeof RandomPassword, RandomPassword);
+            TempPassword = string(RandomPassword, sizeof RandomPassword);
+        }
+        if (!QcGenerateAuthCertificate(TempPassword, Pkcs12, Pkcs12Length)) {
             cout << "Failed to generate auth certificate" << endl;
             return QUIC_STATUS_INTERNAL_ERROR;
         }
@@ -392,7 +429,7 @@ int main(
         Creds.CertificatePkcs12->Asn1BlobLength = (uint32_t)Pkcs12Length;
         Creds.CertificatePkcs12->PrivateKeyPassword = nullptr;
         Creds.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_PKCS12;
-        Creds.Flags = QUIC_CREDENTIAL_FLAG_NONE;
+        Creds.Flags = Flags;
         MsQuicConfiguration Config(Registration, Alpn, Settings, Creds);
         if (!Config.IsValid()) {
             cout << "Configuration failed to init with: " << hex << Config.GetInitStatus() << endl;
@@ -417,13 +454,32 @@ int main(
 
     } else if (TargetAddress != nullptr) {
         // client
-        MsQuicCredentialConfig Creds;
-        Creds.Type = QUIC_CREDENTIAL_TYPE_NONE;
-        Creds.Flags = QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION | QUIC_CREDENTIAL_FLAG_CLIENT;
-        MsQuicConfiguration Config(Registration, Alpn, Settings, Creds);
         QcConnection ConnectionContext{};
         CxPlatEventInitialize(&ConnectionContext.SendCompleteEvent, false, false);
         CxPlatEventInitialize(&ConnectionContext.ConnectionShutdownEvent, false, false);
+        uint32_t Pkcs12Length = 0;
+        unique_ptr<uint8_t[]> Pkcs12;
+        MsQuicCredentialConfig Creds;
+        QUIC_CERTIFICATE_PKCS12 Pkcs12Info{};
+        Creds.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
+        if (Password != nullptr) {
+            Creds.Flags |=
+                QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED
+                | QUIC_CREDENTIAL_FLAG_DEFER_CERTIFICATE_VALIDATION;
+            ConnectionContext.Password = string(Password);
+            if (!QcGenerateAuthCertificate(ConnectionContext.Password, Pkcs12, Pkcs12Length)) {
+                cout << "Failed to generate auth certificate" << endl;
+                return QUIC_STATUS_INTERNAL_ERROR;
+            }
+            Pkcs12Info.Asn1Blob = Pkcs12.get();
+            Pkcs12Info.Asn1BlobLength = Pkcs12Length;
+            Creds.CertificatePkcs12 = &Pkcs12Info;
+            Creds.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_PKCS12;
+        } else {
+            Creds.Type = QUIC_CREDENTIAL_TYPE_NONE;
+            Creds.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
+        }
+        MsQuicConfiguration Config(Registration, Alpn, Settings, Creds);
         MsQuicConnection Client(Registration, CleanUpManual, QcClientConnectionCallback, &ConnectionContext);
         MsQuicStream ClientStream(Client, QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL, CleanUpManual, QcFileSendStreamCallback, &ConnectionContext);
         if (QUIC_FAILED(ClientStream.Start(QUIC_STREAM_START_FLAG_SHUTDOWN_ON_FAIL))) {
