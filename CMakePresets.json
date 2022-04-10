@@ -76,11 +76,13 @@
     ],
     "buildPresets" : [
         {
-            "name": "Windows Debug",
+            "name": "x64-debug",
+            "displayName": "Windows Debug",
             "configurePreset": "x64-debug"
         },
         {
-            "name": "Linux Debug",
+            "name": "linux-debug",
+            "displayName": "Linux Debug",
             "configurePreset": "linux-debug"
         }
     ]
