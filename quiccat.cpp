@@ -74,8 +74,8 @@ PrintProgress(
         }
     }
     cout << "] " << setw(3) << (int)(ProgressFraction * 100.0) << "%";
-    cout << " " << setw(5) << duration_cast<minutes>(EstimatedRemaining)
-        << setw(3) << duration_cast<seconds>(EstimatedRemaining) - duration_cast<minutes>(EstimatedRemaining);
+    cout << " " << setw(3) << duration_cast<minutes>(EstimatedRemaining).count() << "min "
+        << setw(2) << (duration_cast<seconds>(EstimatedRemaining) - duration_cast<minutes>(EstimatedRemaining)).count() << "s";
     if (RateTime > steady_clock::duration(0)) {
         const auto BitsPerSecond =
             (RateBytes * 8 * steady_clock::duration::period::den) /
@@ -107,9 +107,18 @@ PrintTransferSummary(
         (ElapsedTime.count() * steady_clock::duration::period::num);
         // ((BytesTransferred * 8.0) /
         // (ElapsedTime.count() * steady_clock::duration::period::num)) * steady_clock::duration::period::den;
-    cout << dec << BytesTransferred << " bytes " << DirectionStr << " in "
-        << duration_cast<seconds>(ElapsedTime) << " "
-        << duration_cast<milliseconds>(ElapsedTime) - duration_cast<seconds>(ElapsedTime);
+    cout << dec << BytesTransferred << " bytes " << DirectionStr << " in ";
+    if (ElapsedTime >= minutes(1)) {
+        cout << duration_cast<minutes>(ElapsedTime).count() << "min ";
+        ElapsedTime -= duration_cast<minutes>(ElapsedTime);
+    }
+    if (ElapsedTime >= seconds(1)) {
+        cout << duration_cast<seconds>(ElapsedTime).count() << "s ";
+        ElapsedTime -= duration_cast<seconds>(ElapsedTime);
+    }
+    if (ElapsedTime >= milliseconds(1)) {
+        cout << duration_cast<milliseconds>(ElapsedTime).count() << "ms";
+    }
     if (RateBps >= 1000000000) {
         cout << " (" << setprecision(4) << RateBps / 1000000000.0 << "Gbps)" << endl;
     } else if (RateBps >= 1000000) {
