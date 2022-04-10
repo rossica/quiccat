@@ -11,7 +11,6 @@ set(QUIC_BUILD_TEST OFF CACHE BOOL "Don't need the tests")
 set(QUIC_BUILD_PERF OFF CACHE BOOL "Don't need perf")
 set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
 set(QUIC_BUILD_SHARED OFF CACHE BOOL "Statically linking")
-set(CMAKE_BUILD_TYPE "Debug")
 add_subdirectory(submodules/msquic)
 target_compile_features(inc INTERFACE cxx_std_20)
 
