@@ -8,7 +8,7 @@
 #include <chrono>
 
 #ifndef _WIN32
-#define CX_PLATFORM_LINUX
+#define CX_PLATFORM_LINUX 1
 #endif
 #include <msquichelper.h>
 #include <msquic.hpp>
