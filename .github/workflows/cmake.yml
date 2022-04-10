@@ -25,7 +25,10 @@ jobs:
     - uses: ilammy/setup-nasm@v1.3.0
 
     - name: Install Ninja
-      run: choco install ninja
+      run: |
+            choco install ninja
+            ninja.exe --version
+            where.exe cl.exe
 
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
