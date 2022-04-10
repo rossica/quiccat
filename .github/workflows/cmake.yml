@@ -31,7 +31,7 @@ jobs:
 
     - name: Build
       # Build your program with the given configuration
-      run: cmake --build --preset x64-${{env.BUILD_TYPE}}
+      run: cmake --build ${{github.workspace}}/out/build/x64-${{env.BUILD_TYPE}}
 
     #- name: Test
       #working-directory: ${{github.workspace}}/build
