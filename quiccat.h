@@ -7,6 +7,9 @@
 #include <filesystem>
 #include <chrono>
 
+#ifndef _WIN32
+#define CX_PLATFORM_LINUX
+#endif
 #include <msquichelper.h>
 #include <msquic.hpp>
 #include <quic_platform.h>
