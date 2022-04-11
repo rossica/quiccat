@@ -20,5 +20,5 @@ endif()
 
 # Add source to this project's executable.
 add_executable (quiccat "quiccat.cpp" "quiccat.h" "auth.cpp" "auth.h")
-target_link_libraries(quiccat base_link msquic OpenSSLQuic)
+target_link_libraries(quiccat base_link msquic_static OpenSSLQuic)
 target_compile_features(quiccat PRIVATE cxx_std_20)
