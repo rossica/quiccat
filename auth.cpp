@@ -263,7 +263,7 @@ QcVerifyCertificate(
         goto Error;
     }
 
-    if (BN_num_bytes(SaltBn) > sizeof(Salt)) {
+    if (BN_num_bytes(SaltBn) > (int)sizeof(Salt)) {
         printf("Serial number is not correct size! %u vs %zu\n", BN_num_bytes(SaltBn), sizeof(Salt));
         goto Error;
     }
