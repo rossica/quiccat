@@ -9,6 +9,7 @@ set(QUIC_TLS "openssl" CACHE STRING "TLS Library to use")
 set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
 set(QUIC_BUILD_SHARED OFF CACHE BOOL "Statically linking")
 add_subdirectory(submodules/msquic)
+target_compile_features(inc INTERFACE cxx_std_20)
 
 if (WIN32)
     add_compile_options(/WX /W4 /sdl)

@@ -45,7 +45,7 @@ jobs:
             choco install ninja
             ninja.exe --version
 
-    - name: Instal Ninja (Linux)
+    - name: Install Ninja (Linux)
       if: ${{matrix.os_family == 'linux'}}
       run: sudo apt-get install ninja-build
 

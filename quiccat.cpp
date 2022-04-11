@@ -262,6 +262,8 @@ QcFileRecvStreamCallback(
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
         CxPlatEventSet(Connection->SendCompleteEvent);
         break;
+    default:
+        break;
     }
     return QUIC_STATUS_SUCCESS;
 }
