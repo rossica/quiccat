@@ -34,8 +34,8 @@
             }
         },
         {
-            "name": "x64-debug",
-            "displayName": "x64 Debug",
+            "name": "windows-debug",
+            "displayName": "Windows Debug",
             "inherits": "windows-base",
             "architecture": {
                 "value": "x64",
@@ -46,9 +46,9 @@
             }
         },
         {
-            "name": "x64-release",
-            "displayName": "x64 Release",
-            "inherits": "x64-debug",
+            "name": "windows-release",
+            "displayName": "Windows Release",
+            "inherits": "windows-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
@@ -76,9 +76,15 @@
     ],
     "buildPresets" : [
         {
-            "name": "x64-debug",
+            "name": "windows-debug",
             "displayName": "Windows Debug",
-            "configurePreset": "x64-debug"
+            "configurePreset": "windows-debug"
+        },
+        {
+            "name": "windows-debug-clean",
+            "displayName": "Windows Debug (clean)",
+            "cleanFirst": true,
+            "configurePreset": "windows-debug"
         },
         {
             "name": "linux-debug",
