@@ -12,50 +12,49 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.config.name }}
+    name: ${{ matrix.name }}
     # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
     # You can convert this to a matrix build if you need cross-platform coverage.
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-    runs-on: ${{ matrix.config.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        config:
-        - {
-            name: "Build Windows Debug"
-            os: windows-latest
-            os_family: windows
-          }
-        - {
-            name: "Build Linux Debug"
-            os: ubuntu-latest
-            os_family: linux
-          }
+        os: [windows-latest, ubuntu-latest]
+        include:
+        - os: windows-latest
+          name: "Build Windows Debug"
+          os_family: windows
+
+        - os: ubuntu-latest
+          name: "Build Linux Debug"
+          os_family: linux
 
     steps:
     - uses: actions/checkout@v3
       with:
         submodules: recursive
     - uses: ilammy/setup-nasm@v1.3.0
-      if: ${{matrix.config.os_family == 'windows'}}
+      if: ${{matrix.os_family == 'windows'}}
     - uses: ilammy/msvc-dev-cmd@v1.10.0
-      if: ${{matrix.config.os_family == 'windows'}}
+      if: ${{matrix.os_family == 'windows'}}
 
     - name: Install Ninja (Windows)
-      if: ${{matrix.config.os_family == 'windows'}}
+      if: ${{matrix.os_family == 'windows'}}
       run: |
             choco install ninja
             ninja.exe --version
 
     - name: Instal Ninja (Linux)
-      if: ${{matrix.config.os_family == 'linux'}}
+      if: ${{matrix.os_family == 'linux'}}
       run: sudo apt-get install ninja-build
 
     - name: Configure CMake
-      run: cmake --preset ${{matrix.config.os_family}}-${{env.BUILD_TYPE}}
+      run: cmake --preset ${{matrix.os_family}}-${{env.BUILD_TYPE}}
 
     - name: Build
       # Build your program with the given configuration
-      run: cmake --build --preset ${{matrix.config.os_family}}-${{env.BUILD_TYPE}}
+      run: cmake --build --preset ${{matrix.os_family}}-${{env.BUILD_TYPE}}
 
     #- name: Test
       #working-directory: ${{github.workspace}}/build
