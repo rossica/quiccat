@@ -21,7 +21,7 @@ void
 PrintHexBuffer(const char* const Label, const uint8_t*const Buf, uint32_t Len)
 {
     printf("%s: ", Label);
-    for(auto i = 0; i < Len; i++) {
+    for(unsigned i = 0; i < Len; i++) {
         printf("%02x", (unsigned char)Buf[i]);
     }
     printf("\n");
@@ -36,7 +36,7 @@ QcGenerateSigningKey(
     EVP_PKEY* SigningKey = nullptr;
 
     uint8_t SigningKeyBytes[ED448_KEYLEN];
-    int Ret = PKCS5_PBKDF2_HMAC(Password.c_str(), Password.length(), Salt, SaltLen, PBKDFIterations, EVP_sha512(), sizeof(SigningKeyBytes), SigningKeyBytes);
+    int Ret = PKCS5_PBKDF2_HMAC(Password.c_str(), (int)Password.length(), Salt, SaltLen, PBKDFIterations, EVP_sha512(), sizeof(SigningKeyBytes), SigningKeyBytes);
     if (Ret != 1) {
         printf("Failed to run PBKDF2!\n");
         goto Error;
@@ -45,7 +45,7 @@ QcGenerateSigningKey(
     SigningKey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED448, nullptr, SigningKeyBytes, sizeof(SigningKeyBytes));
     if (SigningKey == nullptr) {
         printf("Failed to create signing key!\n");
-        ERR_print_errors_cb([](const char* str, size_t len, void* u){printf("%s", str); return 1;}, nullptr);
+        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){printf("%s", str); return 1;}, nullptr);
         goto Error;
     }
 
@@ -164,7 +164,7 @@ QcGenerateAuthCertificate(
     Ret = X509_sign(Cert, SigningKey, nullptr);
     if (Ret == 0) {
         printf("Failed to sign certificate!\n");
-        ERR_print_errors_cb([](const char* str, size_t len, void* u){printf("%s\n", str); return 1;}, nullptr);
+        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){printf("%s\n", str); return 1;}, nullptr);
         goto Error;
     }
 
@@ -196,7 +196,7 @@ QcGenerateAuthCertificate(
         goto Error;
     }
 
-    if (Ret != Pkcs12Length) {
+    if ((uint32_t)Ret != Pkcs12Length) {
         printf("Pkcs12 export length changed between calls!\n");
         goto Error;
     }
@@ -264,13 +264,13 @@ QcVerifyCertificate(
     }
 
     if (BN_num_bytes(SaltBn) > sizeof(Salt)) {
-        printf("Serial number is not correct size! %u vs %llu\n", BN_num_bytes(SaltBn), sizeof(Salt));
+        printf("Serial number is not correct size! %u vs %zu\n", BN_num_bytes(SaltBn), sizeof(Salt));
         goto Error;
     }
 
     Ret = BN_bn2binpad(SaltBn, Salt, sizeof(Salt));
     if (Ret != sizeof(Salt)) {
-        printf("BIGNUM conversion to binary is wrong size! %u vs %llu\n", Ret, sizeof(Salt));
+        printf("BIGNUM conversion to binary is wrong size! %u vs %zu\n", Ret, sizeof(Salt));
         goto Error;
     }
 
@@ -287,11 +287,11 @@ QcVerifyCertificate(
         goto Error;
     } else if (Ret == -1) {
         printf("Certificate signature is malformed!\n");
-        ERR_print_errors_cb([](const char* str, size_t len, void* u){printf("%s\n", str); return 1;}, nullptr);
+        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){printf("%s\n", str); return 1;}, nullptr);
         goto Error;
     } else {
         printf("Certificate failed validation for another reason!\n");
-        ERR_print_errors_cb([](const char* str, size_t len, void* u){printf("%s\n", str); return 1;}, nullptr);
+        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){printf("%s\n", str); return 1;}, nullptr);
         goto Error;
     }
 

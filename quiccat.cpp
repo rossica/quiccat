@@ -65,7 +65,7 @@ PrintProgress(
         cout << FileName.substr(0,26) << "...";
     }
     cout << " [";
-    int pos = ProgressBarWidth * ProgressFraction;
+    int pos = (int)(ProgressBarWidth * ProgressFraction);
     for (int i = 0; i < ProgressBarWidth; ++i) {
         if (i <= pos) {
             cout << "|";
@@ -132,7 +132,7 @@ PrintTransferSummary(
 
 QUIC_STATUS
 QcFileSendStreamCallback(
-    _In_ MsQuicStream* Stream,
+    _In_ MsQuicStream* /*Stream*/,
     _In_opt_ void* Context,
     _Inout_ QUIC_STREAM_EVENT* Event
     )
@@ -183,7 +183,7 @@ QcFileRecvStreamCallback(
 
             if (FileNameLength > Event->RECEIVE.Buffers[0].Length - 1) {
                 cout << "File name is not contiguous" << endl;
-                Stream->Shutdown(QUIC_STATUS_INVALID_PARAMETER);
+                Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INVALID_PARAMETER);
                 return QUIC_STATUS_INTERNAL_ERROR;
             } else {
                 Connection->FileName = string((char*)Event->RECEIVE.Buffers[0].Buffer + 1, FileNameLength);
@@ -191,20 +191,20 @@ QcFileRecvStreamCallback(
 
             if (Connection->FileName.find("..") != string::npos) {
                 cout << "File name contains .. " << endl;
-                Stream->Shutdown(QUIC_STATUS_INVALID_PARAMETER);
+                Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INVALID_PARAMETER);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
 
             if (Connection->FileName.find(Connection->DestinationPath.preferred_separator) != string::npos) {
                 cout << "File name contains path separator" << endl;
-                Stream->Shutdown(QUIC_STATUS_INVALID_PARAMETER);
+                Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INVALID_PARAMETER);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
 
             QUIC_VAR_INT FileLength = 0;
             Offset = 1 + FileNameLength;
             if (!QuicVarIntDecode(
-                Event->RECEIVE.Buffers[0].Length,
+                (uint16_t)Event->RECEIVE.Buffers[0].Length,
                 Event->RECEIVE.Buffers[0].Buffer,
                 &Offset,
                 &FileLength)) {
@@ -227,7 +227,7 @@ QcFileRecvStreamCallback(
             Connection->StartTime = Now;
             Connection->LastUpdate = Now;
         }
-        for (auto i = 0; i < Event->RECEIVE.BufferCount; ++i) {
+        for (unsigned i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             auto WriteLength = Event->RECEIVE.Buffers[i].Length - Offset;
             Connection->DestinationFile.write((char*)Event->RECEIVE.Buffers[i].Buffer + Offset, WriteLength);
             if (Connection->DestinationFile.fail()) {
@@ -268,7 +268,7 @@ QcFileRecvStreamCallback(
 
 QUIC_STATUS
 QcServerConnectionCallback(
-    _In_ MsQuicConnection* Connection,
+    _In_ MsQuicConnection* /*Connection*/,
     _In_opt_ void* Context,
     _Inout_ QUIC_CONNECTION_EVENT* Event
     )
@@ -306,7 +306,7 @@ QcServerConnectionCallback(
 
 QUIC_STATUS
 QcClientConnectionCallback(
-    _In_ MsQuicConnection* Connection,
+    _In_ MsQuicConnection* /*Connection*/,
     _In_opt_ void* Context,
     _Inout_ QUIC_CONNECTION_EVENT* Event
     )
@@ -337,7 +337,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
 _Function_class_(QUIC_LISTENER_CALLBACK)
 QUIC_STATUS
 QcListenerCallback(
-    _In_ HQUIC Listener,
+    _In_ HQUIC /*Listener*/,
     _In_opt_ void* Context,
     _Inout_ QUIC_LISTENER_EVENT* Event
     )
@@ -384,7 +384,6 @@ int main(
     const char* DestinationPath = nullptr;
     const char* Password = nullptr;
     uint16_t Port = 0;
-    MsQuicConnection* ServerConnection = nullptr;
     QUIC_ADDR LocalAddr;
 
     TryGetValue(argc, argv, "port", &Port);
@@ -548,7 +547,7 @@ int main(
         BufferCursor += FileName.size();
 
         BufferCursor = QuicVarIntEncode(ConnectionContext.FileSize, BufferCursor);
-        ConnectionContext.SendQuicBuffer.Length = 1 + FileName.size() + QuicVarIntSize(ConnectionContext.FileSize);
+        ConnectionContext.SendQuicBuffer.Length = (uint32_t)(1 + FileName.size() + QuicVarIntSize(ConnectionContext.FileSize));
         uint32_t BufferRemaining = ConnectionContext.CurrentSendSize - ConnectionContext.SendQuicBuffer.Length;
 
         fstream File(Path, ios::binary | ios::in);
@@ -567,7 +566,7 @@ int main(
             if (BytesRead < BufferRemaining || File.eof()) {
                 EndOfFile = true;
             }
-            ConnectionContext.SendQuicBuffer.Length += BytesRead;
+            ConnectionContext.SendQuicBuffer.Length += (uint32_t)BytesRead;
             QUIC_SEND_FLAGS Flags = EndOfFile ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
             if (QUIC_FAILED(Status = ClientStream.Send(&ConnectionContext.SendQuicBuffer, 1, Flags))) {
                 cout << "StreamSend failed with 0x" << hex << Status << endl;
