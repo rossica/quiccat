@@ -74,6 +74,8 @@ jobs:
       if: ${{ !failure() && github.ref == 'refs/heads/master' }}
       with:
         files: ${{ github.workspace }}/latest/*
+        name: ${{ matrix.os_family }}-latest
+        tag: latest
         prerelease: true
 
     #- name: Test
