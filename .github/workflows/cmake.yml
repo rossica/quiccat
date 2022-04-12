@@ -35,26 +35,46 @@ jobs:
       with:
         submodules: recursive
     - uses: ilammy/setup-nasm@v1.3.0
-      if: ${{matrix.os_family == 'windows'}}
+      if: ${{ matrix.os_family == 'windows' }}
     - uses: ilammy/msvc-dev-cmd@v1.10.0
-      if: ${{matrix.os_family == 'windows'}}
+      if: ${{ matrix.os_family == 'windows' }}
 
     - name: Install Ninja (Windows)
-      if: ${{matrix.os_family == 'windows'}}
+      if: ${{ matrix.os_family == 'windows' }}
       run: |
             choco install ninja
             ninja.exe --version
 
     - name: Install Ninja (Linux)
-      if: ${{matrix.os_family == 'linux'}}
+      if: ${{ matrix.os_family == 'linux' }}
       run: sudo apt-get install ninja-build
 
     - name: Configure CMake
-      run: cmake --preset ${{matrix.os_family}}-${{env.BUILD_TYPE}}
+      run: cmake --preset ${{ matrix.os_family }}-${{ env.BUILD_TYPE }}
 
     - name: Build
       # Build your program with the given configuration
-      run: cmake --build --preset ${{matrix.os_family}}-${{env.BUILD_TYPE}}
+      run: cmake --build --preset ${{ matrix.os_family }}-${{ env.BUILD_TYPE }}
+
+    - name: Copy Files (Windows)
+      if: ${{ matrix.os_family == 'windows' && !failure() }}
+      run: |
+            mkdir ${{ github.workspace }}/latest
+            copy ${{ github.workspace }}/out/build/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat.exe ${{ github.workspace }}/latest
+            copy ${{ github.workspace }}/out/build/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat.pdb ${{ github.workspace }}/latest
+
+    - name: Copy Files (Linux)
+      if: ${{ matrix.os_family == 'linux' && !failure() }}
+      run: |
+            mkdir ${{ github.workspace }}/latest
+            cp ${{ github.workspace }}/out/build/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat ${{ github.workspace }}/latest
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      if: ${{ !failure() && github.ref == 'refs/heads/master' }}
+      with:
+        files: ${{ github.workspace }}/latest/*
+        prerelease: true
 
     #- name: Test
       #working-directory: ${{github.workspace}}/build

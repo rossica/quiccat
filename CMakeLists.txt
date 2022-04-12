@@ -17,8 +17,10 @@ target_link_libraries(quiccat msquic_static base_link OpenSSLQuic)
 target_compile_features(quiccat PRIVATE cxx_std_20)
 
 if (WIN32)
-    target_compile_options(quiccat PRIVATE /WX /W4 /sdl)
+    target_compile_options(quiccat PRIVATE /WX /W4 /sdl
+        $<$<CONFIG:DEBUG>:/Zi /Zf /DEBUG>)
 else()
     target_compile_options(quiccat PRIVATE -Werror -Wall -Wextra -Wformat=2 -Wno-type-limits
-        -Wno-unknown-pragmas -Wno-multichar -Wno-missing-field-initializers)
+        -Wno-unknown-pragmas -Wno-multichar -Wno-missing-field-initializers
+        $<$<CONFIG:DEBUG>:-g -Og>)
 endif()
