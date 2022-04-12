@@ -62,19 +62,25 @@ jobs:
             mkdir ${{ github.workspace }}/latest
             copy ${{ github.workspace }}/out/build/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat.exe ${{ github.workspace }}/latest
             copy ${{ github.workspace }}/out/build/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat.pdb ${{ github.workspace }}/latest
+            7z.exe a ${{ github.workspace }}/latest-${{ matrix.os_family }}.zip ${{ github.workspace }}/latest
 
     - name: Copy Files (Linux)
       if: ${{ matrix.os_family == 'linux' && !failure() }}
       run: |
             mkdir ${{ github.workspace }}/latest
             cp ${{ github.workspace }}/out/build/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat ${{ github.workspace }}/latest
+            tar -cvf ${{ github.workspace }}/latest-${{ matrix.os_family }}.tar.gz ${{ github.workspace }}/latest
+
+    - name: Update tag
+      uses: EndBug/latest-tag@v1.4.0
+      if: ${{ !failure() && github.ref == 'refs/heads/master' }}
 
     - name: Release
       uses: softprops/action-gh-release@v1
       if: ${{ !failure() && github.ref == 'refs/heads/master' }}
       with:
-        files: ${{ github.workspace }}/latest/*
-        name: ${{ matrix.os_family }}-latest
+        files: ${{ github.workspace }}/latest-*
+        name: Latest Debug
         tag_name: latest
         prerelease: true
 
