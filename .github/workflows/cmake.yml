@@ -75,7 +75,7 @@ jobs:
       with:
         files: ${{ github.workspace }}/latest/*
         name: ${{ matrix.os_family }}-latest
-        tag: latest
+        tag_name: latest
         prerelease: true
 
     #- name: Test
