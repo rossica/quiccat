@@ -5,11 +5,17 @@ on:
     branches: [ master ]
 
 jobs:
-  build:
-    name: Build
-    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
-    # You can convert this to a matrix build if you need cross-platform coverage.
-    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+  build-windows-release:
+    uses: ./.github/workflows/windows.yml
+    with:
+      config: release
+  build-linux-release:
+    uses: ./.github/workflows/linux.yml
+    with:
+      config: release
+
+  create-release:
+    name: Create Release
     strategy:
       fail-fast: true
       matrix:
@@ -21,38 +27,35 @@ jobs:
         - os: ubuntu-latest
           os_family: linux
 
-    - uses: ./.github/workflows/windows.yml
-      if: ${{ matrix.os == 'windows-latest' }}
-      with:
-        config: ${{ matrix.config }}
-
-    - uses: ./.github/workflows/linux.yml
-      if: ${{ matrix.os == 'ubuntu-latest' }}
-      with:
-        config: ${{ matrix.config }}
-
     - uses: actions/download-artifact@v3
+      needs: build-${{ matrix.os_family}}-release
       with:
-        name: ${{ matrix.os_family }}-${{ inputs.config }}-${{ github.sha }}
+        name: ${{ matrix.os_family }}-${{ matrix.config }}-${{ github.sha }}
         path: ${{ github.workspace }}/${{ matrix.os_family }}-latest
 
     - name: Compress Files (Windows)
-      if: ${{ matrix.os_family == 'windows' && !failure() }}
+      id: compress-windows-files
+      needs: build-windows-release
+      if: ${{ matrix.os_family == 'windows'}}
       run: |
             7z.exe a ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.zip ${{ github.workspace }}/${{ matrix.os_family }}-latest
 
-    - name: Compess Files (Linux)
-      if: ${{ matrix.os_family == 'linux' && !failure() }}
+    - name: Compress Files (Linux)
+      id: compress-linux-files
+      needs: build-linux-release
+      if: ${{ matrix.os_family == 'linux'}}
       run: |
             tar -cvf ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.tar.gz ${{ github.workspace }}/${{ matrix.os_family }}-latest
 
     - name: Update tag
+      needs: [build-linux-release, build-windows-release]
       uses: EndBug/latest-tag@v1.4.0
-      if: ${{ !failure() && github.ref == 'refs/heads/master' }}
+      if: ${{ github.ref == 'refs/heads/master' }}
 
     - name: Release
+      needs: [compress-linux-files, compress-windows-files]
       uses: softprops/action-gh-release@v1
-      if: ${{ !failure() && github.ref == 'refs/heads/master' }}
+      if: ${{ github.ref == 'refs/heads/master' }}
       with:
         files: ${{ github.workspace }}/quiccat-latest-*
         name: Latest
