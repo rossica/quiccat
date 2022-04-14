@@ -9,39 +9,47 @@ jobs:
     uses: ./.github/workflows/windows.yml
     with:
       config: release
+
   build-linux-release:
     uses: ./.github/workflows/linux.yml
     with:
       config: release
-  release:
-    name: Create Release
-    runs-on: ${{ matrix.os }}
-    needs: build-${{ matrix.os_family}}-release
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-        config: release
-        include:
-        - os: windows-latest
-          os_family: windows
-        - os: ubuntu-latest
-          os_family: linux
+
+  release-windows:
+    name: Create Windows Release
+    runs-on: windows-latest
+    needs: build-windows-release
 
     - uses: actions/download-artifact@v3
       with:
-        name: ${{ matrix.os_family }}-${{ matrix.config }}-${{ github.sha }}
-        path: ${{ github.workspace }}/${{ matrix.os_family }}-latest
+        name: windows-release-${{ github.sha }}
+        path: ${{ github.workspace }}/windows-latest
 
-    - name: Compress Files (Windows)
-      if: ${{ matrix.os_family == 'windows'}}
+    - name: Compress Files
       run: |
-            7z.exe a ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.zip ${{ github.workspace }}/${{ matrix.os_family }}-latest
+            7z.exe a ${{ github.workspace }}/quiccat-latest-windows.zip ${{ github.workspace }}/windows-latest
 
-    - name: Compress Files (Linux)
-      if: ${{ matrix.os_family == 'linux'}}
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      if: ${{ github.ref == 'refs/heads/master' }}
+      with:
+        files: ${{ github.workspace }}/quiccat-latest-*
+        name: Latest
+        tag_name: latest
+
+  release-linux:
+    name: Create Linux Release
+    runs-on: ubuntu-latest
+    needs: build-linux-release
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: linux-release-${{ github.sha }}
+        path: ${{ github.workspace }}/linux-latest
+
+    - name: Compress Files
       run: |
-            tar -cvf ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.tar.gz ${{ github.workspace }}/${{ matrix.os_family }}-latest
+            tar -cvf ${{ github.workspace }}/quiccat-latest-linux.tar.gz ${{ github.workspace }}/linux-latest
 
     - name: Release
       uses: softprops/action-gh-release@v1
@@ -52,7 +60,7 @@ jobs:
         tag_name: latest
 
   update-tag:
-    needs: release
+    needs: [release-windows, release-linux]
     runs-on: ubuntu-latest
     - name: Update tag
       uses: EndBug/latest-tag@v1.4.0
