@@ -62,6 +62,7 @@ jobs:
   update-tag:
     needs: [release-windows, release-linux]
     runs-on: ubuntu-latest
+    steps:
     - name: Update tag
       uses: EndBug/latest-tag@v1.4.0
       if: ${{ github.ref == 'refs/heads/master' }}
