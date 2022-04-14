@@ -16,12 +16,12 @@ jobs:
   release:
     name: Create Release
     runs-on: ${{ matrix.os }}
-    needs: build-${{ matrix.os_family}}-release
+    needs: [ build-linux-release, build-windows-release ]
     strategy:
       fail-fast: true
       matrix:
-        os: [windows-latest, ubuntu-latest]
-        config: release
+        os: [ windows-latest, ubuntu-latest ]
+        config: [ release ]
         include:
         - os: windows-latest
           os_family: windows
