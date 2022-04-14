@@ -1,0 +1,42 @@
+name: Windows Build
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Windows ${{ inputs.config }} Build
+    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
+    # You can convert this to a matrix build if you need cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - uses: ilammy/setup-nasm@v1.3.0
+    - uses: ilammy/msvc-dev-cmd@v1.10.0
+
+    - name: Install Ninja
+      run: |
+            choco install ninja
+            ninja.exe --version
+
+    - name: Configure CMake
+      run: cmake --preset windows-${{ inputs.config }}
+
+    - name: Build
+      # Build your program with the given configuration
+      run: cmake --build --preset windows-${{ inputs.config }}
+
+    - name: Upload
+      uses: actions/upload-artifact@v3
+      if: ${{ !failure() }}
+      with:
+        name: windows-${{ inputs.config }}-${{ github.sha }}
+        path: ${{ github.workspace }}/out/bin/windows-${{ inputs.config }}/*

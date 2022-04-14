@@ -1,0 +1,38 @@
+name: Linux Build
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Linux ${{ inputs.config }} Build
+    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
+    # You can convert this to a matrix build if you need cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: Install Ninja
+      run: sudo apt-get install ninja-build
+
+    - name: Configure CMake
+      run: cmake --preset linux-${{ inputs.config }}
+
+    - name: Build
+      # Build your program with the given configuration
+      run: cmake --build --preset linux-${{ inputs.config }}
+
+    - name: Upload
+      uses: actions/upload-artifact@v3
+      if: ${{ !failure() }}
+      with:
+        name: linux-${{ inputs.config }}-${{ github.sha }}
+        path: ${{ github.workspace }}/out/bin/linux-${{ inputs.config }}/*
