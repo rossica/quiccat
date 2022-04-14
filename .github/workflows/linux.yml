@@ -32,7 +32,7 @@ jobs:
 
     - name: Upload
       uses: actions/upload-artifact@v3
-      if: !failure()
+      if: ${{ !failure() }}
       with:
         name: linux-${{ inputs.config }}-${{ github.sha }}
         path: ${{ github.workspace }}/out/bin/linux-${{ inputs.config }}/*
