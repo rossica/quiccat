@@ -13,7 +13,6 @@ jobs:
     uses: ./.github/workflows/linux.yml
     with:
       config: release
-
   release:
     name: Create Release
     runs-on: ${{ matrix.os }}

@@ -92,6 +92,16 @@
             "name": "linux-debug",
             "displayName": "Linux Debug",
             "configurePreset": "linux-debug"
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Windows Release",
+            "configurePreset": "windows-release"
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Linux Release",
+            "configurePreset": "linux-release"
         }
     ]
 }
