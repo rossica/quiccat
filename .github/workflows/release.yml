@@ -1,0 +1,59 @@
+name: Release CI
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: Build
+    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
+    # You can convert this to a matrix build if you need cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        config: release
+        include:
+        - os: windows-latest
+          os_family: windows
+        - os: ubuntu-latest
+          os_family: linux
+
+    - uses: ./.github/workflows/windows.yml
+      if: ${{ matrix.os == 'windows-latest' }}
+      with:
+        config: ${{ matrix.config }}
+
+    - uses: ./.github/workflows/linux.yml
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+      with:
+        config: ${{ matrix.config }}
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ matrix.os_family }}-${{ inputs.config }}-${{ github.sha }}
+        path: ${{ github.workspace }}/${{ matrix.os_family }}-latest
+
+    - name: Compress Files (Windows)
+      if: ${{ matrix.os_family == 'windows' && !failure() }}
+      run: |
+            7z.exe a ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.zip ${{ github.workspace }}/${{ matrix.os_family }}-latest
+
+    - name: Compess Files (Linux)
+      if: ${{ matrix.os_family == 'linux' && !failure() }}
+      run: |
+            tar -cvf ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.tar.gz ${{ github.workspace }}/${{ matrix.os_family }}-latest
+
+    - name: Update tag
+      uses: EndBug/latest-tag@v1.4.0
+      if: ${{ !failure() && github.ref == 'refs/heads/master' }}
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      if: ${{ !failure() && github.ref == 'refs/heads/master' }}
+      with:
+        files: ${{ github.workspace }}/quiccat-latest-*
+        name: Latest
+        tag_name: latest

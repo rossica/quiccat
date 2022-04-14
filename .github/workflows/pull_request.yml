@@ -1,8 +1,6 @@
-name: CMake
+name: Pull Request CI
 
 on:
-  push:
-    branches: [ master ]
   pull_request:
     branches: [ master ]
 
@@ -12,63 +10,39 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.name }}
+    name: Build
     # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
     # You can convert this to a matrix build if you need cross-platform coverage.
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        include:
-        - os: windows-latest
-          name: "Build Windows Debug"
-          os_family: windows
+        config: [debug, release]
 
-        - os: ubuntu-latest
-          name: "Build Linux Debug"
-          os_family: linux
+    uses: ./.github/workflows/windows.yml
+    if: ${{ matrix.os == windows-latest }}
+    with:
+      config: ${{ matrix.config }}
 
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: recursive
-    - uses: ilammy/setup-nasm@v1.3.0
-      if: ${{ matrix.os_family == 'windows' }}
-    - uses: ilammy/msvc-dev-cmd@v1.10.0
-      if: ${{ matrix.os_family == 'windows' }}
-
-    - name: Install Ninja (Windows)
-      if: ${{ matrix.os_family == 'windows' }}
-      run: |
-            choco install ninja
-            ninja.exe --version
-
-    - name: Install Ninja (Linux)
-      if: ${{ matrix.os_family == 'linux' }}
-      run: sudo apt-get install ninja-build
-
-    - name: Configure CMake
-      run: cmake --preset ${{ matrix.os_family }}-${{ env.BUILD_TYPE }}
-
-    - name: Build
-      # Build your program with the given configuration
-      run: cmake --build --preset ${{ matrix.os_family }}-${{ env.BUILD_TYPE }}
+    uses: ./.github/workflows/linux.yml
+    if: ${{ matrix.os == ubuntu-latest }}
+    with:
+      config: ${{ matrix.config }}
 
     - name: Copy Files (Windows)
       if: ${{ matrix.os_family == 'windows' && !failure() }}
       run: |
             mkdir ${{ github.workspace }}/latest
-            copy ${{ github.workspace }}/out/build/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat.exe ${{ github.workspace }}/latest
-            copy ${{ github.workspace }}/out/build/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat.pdb ${{ github.workspace }}/latest
+            copy ${{ github.workspace }}/out/bin/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat.exe ${{ github.workspace }}/latest
+            copy ${{ github.workspace }}/out/bin/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat.pdb ${{ github.workspace }}/latest
             7z.exe a ${{ github.workspace }}/latest-${{ matrix.os_family }}.zip ${{ github.workspace }}/latest
 
     - name: Copy Files (Linux)
       if: ${{ matrix.os_family == 'linux' && !failure() }}
       run: |
             mkdir ${{ github.workspace }}/latest
-            cp ${{ github.workspace }}/out/build/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat ${{ github.workspace }}/latest
+            cp ${{ github.workspace }}/out/bin/${{ matrix.os_family }}-${{ env.BUILD_TYPE }}/quiccat ${{ github.workspace }}/latest
             tar -cvf ${{ github.workspace }}/latest-${{ matrix.os_family }}.tar.gz ${{ github.workspace }}/latest
 
     - name: Update tag
@@ -80,9 +54,8 @@ jobs:
       if: ${{ !failure() && github.ref == 'refs/heads/master' }}
       with:
         files: ${{ github.workspace }}/latest-*
-        name: Latest Debug
+        name: Latest
         tag_name: latest
-        prerelease: true
 
     #- name: Test
       #working-directory: ${{github.workspace}}/build
