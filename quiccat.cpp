@@ -209,6 +209,7 @@ QcFileRecvStreamCallback(
                 &Offset,
                 &FileLength)) {
                 cout << "Failed to decode File size!" << endl;
+                Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
             Connection->FileSize = FileLength;
@@ -221,6 +222,7 @@ QcFileRecvStreamCallback(
 
             if (Connection->DestinationFile.fail()) {
                 cout << "Failed to open " << Connection->DestinationPath / Connection->FileName << " for writing!" << endl;
+                Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
 
@@ -232,6 +234,7 @@ QcFileRecvStreamCallback(
             Connection->DestinationFile.write((char*)Event->RECEIVE.Buffers[i].Buffer + Offset, WriteLength);
             if (Connection->DestinationFile.fail()) {
                 cout << "Failed to write to file!" << endl;
+                Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
             Offset = 0;
@@ -352,6 +355,10 @@ QcListenerCallback(
                 CleanUpAutoDelete,
                 QcServerConnectionCallback,
                 &ListenerContext->ConnectionContext);
+        if (Conn == nullptr) {
+            cout << "Failed to allocate connection tracking structure!" << endl;
+            return QUIC_STATUS_CONNECTION_REFUSED;
+        }
         ListenerContext->ConnectionContext.Listener = ListenerContext;
         ListenerContext->ConnectionContext.Connection = Conn;
         QUIC_STATUS Status = Conn->SetConfiguration(*ListenerContext->Config);
@@ -375,11 +382,6 @@ int main(
 {
     QUIC_STATUS Status;
     MsQuicApi Api;
-    if (QUIC_FAILED(Status = Api.GetInitStatus())) {
-        cout << "Failed to initialize MsQuic: 0x" << hex << Status << endl;
-        return Status;
-    }
-    MsQuic = &Api;
     const char* ListenAddress;
     const char* TargetAddress;
     const char* FilePath = nullptr;
@@ -415,6 +417,38 @@ int main(
         cout << "Cannot use -file with -listen; Did you mean -destination?" << endl;
         return QUIC_STATUS_INVALID_PARAMETER;
     }
+
+    if (FilePath) {
+        auto FileStatus = filesystem::status(FilePath);
+        if (FileStatus.type() == filesystem::file_type::not_found) {
+            cout << FilePath << " doesn't exist!" << endl;
+            return QUIC_STATUS_INVALID_PARAMETER;
+        }
+        if (FileStatus.type() == filesystem::file_type::directory ||
+            FileStatus.type() == filesystem::file_type::none ||
+            FileStatus.type() == filesystem::file_type::unknown) {
+            cout << FilePath << " must be a file, or file-like!" << endl;
+            return QUIC_STATUS_INVALID_PARAMETER;
+        }
+    }
+
+    if (DestinationPath) {
+        auto DestinationStatus = filesystem::status(DestinationPath);
+        if (DestinationStatus.type() == filesystem::file_type::not_found) {
+            cout << DestinationPath << " doesn't exist!" << endl;
+            return QUIC_STATUS_INVALID_PARAMETER;
+        }
+        if (DestinationStatus.type() != filesystem::file_type::directory) {
+            cout << DestinationPath << " must be a directory!" << endl;
+            return QUIC_STATUS_INVALID_PARAMETER;
+        }
+    }
+
+    if (QUIC_FAILED(Status = Api.GetInitStatus())) {
+        cout << "Failed to initialize MsQuic: 0x" << hex << Status << endl;
+        return Status;
+    }
+    MsQuic = &Api;
 
     MsQuicRegistration Registration("quiccat", QUIC_EXECUTION_PROFILE_TYPE_MAX_THROUGHPUT);
     if (!Registration.IsValid()) {
@@ -530,10 +564,6 @@ int main(
         uint8_t* BufferCursor = ConnectionContext.SendQuicBuffer.Buffer;
 
         filesystem::path Path{FilePath};
-        if (!filesystem::exists(Path)) {
-            cout << Path << " doesn't exist!" << endl;
-            return QUIC_STATUS_INVALID_PARAMETER;
-        }
         ConnectionContext.FileSize = filesystem::file_size(Path);
 
         auto FileName = Path.filename().generic_string();
