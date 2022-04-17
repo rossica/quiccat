@@ -31,10 +31,7 @@ jobs:
 
     - name: Make artifact executable
       if: ${{ inputs.os-family == 'linux' }}
-      run: |
-            ls -lR
-            chmod u+x quiccat
-            ls -lR
+      run: chmod u+x quiccat
 
     - name: Run Test
       run: python test/end2end.py
