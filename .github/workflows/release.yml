@@ -13,10 +13,26 @@ jobs:
     uses: ./.github/workflows/linux.yml
     with:
       config: release
+  test-windows-release:
+    name: Test Windows Release
+    needs: [ build-windows-release ]
+    uses: ./.github/workflows/test.yml
+    with:
+      config: release
+      os: windows-latest
+      os-family: windows
+  test-linux-release:
+    name: Test Linux Release
+    needs: [ build-linux-release ]
+    uses: ./.github/workflows/test.yml
+    with:
+      config: release
+      os: ubuntu-latest
+      os-family: linux
   release:
     name: Create Release
     runs-on: ${{ matrix.os }}
-    needs: [ build-linux-release, build-windows-release ]
+    needs: [ test-linux-release, test-windows-release ]
     strategy:
       fail-fast: true
       matrix:

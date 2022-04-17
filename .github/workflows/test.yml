@@ -1,0 +1,29 @@
+name: Test Artifacts
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        required: true
+        type: string
+      os:
+        required: true
+        type: string
+      os-family:
+        required: true
+        type: string
+
+jobs:
+  test:
+    name: Test ${{ inputs.os-family }} ${{ inputs.config }}
+    runs-on: ${{ inputs.os }}
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ inputs.os-family }}-${{ inputs.config }}-${{ github.sha }}
+        path: ${{ github.workspace }}
+
+    - name: Run Test
+      run: python test/end2end.py

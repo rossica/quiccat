@@ -22,6 +22,42 @@ jobs:
     with:
       config: release
 
+  test-windows-debug:
+    name: Test Windows Debug
+    needs: [ build-windows-debug ]
+    uses: ./.github/workflows/test.yml
+    with:
+      config: debug
+      os: windows-latest
+      os-family: windows
+
+  test-windows-release:
+    name: Test Windows Release
+    needs: [ build-windows-release ]
+    uses: ./.github/workflows/test.yml
+    with:
+      config: release
+      os: windows-latest
+      os-family: windows
+
+  test-linux-debug:
+    name: Test Linux Debug
+    needs: [ build-linux-debug ]
+    uses: ./.github/workflows/test.yml
+    with:
+      config: debug
+      os: ubuntu-latest
+      os-family: linux
+
+  test-linux-release:
+    name: Test Linux Release
+    needs: [ build-linux-release ]
+    uses: ./.github/workflows/test.yml
+    with:
+      config: release
+      os: ubuntu-latest
+      os-family: linux
+
     #- name: Test
       #working-directory: ${{github.workspace}}/build
       # Execute tests defined by the CMake configuration.  

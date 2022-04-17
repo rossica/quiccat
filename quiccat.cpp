@@ -389,6 +389,7 @@ int main(
     const char* Password = nullptr;
     uint16_t Port = 0;
     QUIC_ADDR LocalAddr;
+    uint8_t Wait = false;
 
     TryGetValue(argc, argv, "port", &Port);
     if (!TryGetValue(argc, argv, "listen", &ListenAddress)) {
@@ -400,6 +401,7 @@ int main(
     TryGetValue(argc, argv, "file", &FilePath);
     TryGetValue(argc, argv, "destination", &DestinationPath);
     TryGetValue(argc, argv, "password", &Password);
+    TryGetValue(argc, argv, "wait", &Wait);
 
     if (TargetAddress && ListenAddress) {
         cout << "Can't set both listen and target addresses!" << endl;
@@ -625,14 +627,17 @@ int main(
             ConnectionContext.SendQuicBuffer.Length = 0;
             BufferRemaining = ConnectionContext.CurrentSendSize;
         } while (!ConnectionContext.SendCanceled && !EndOfFile);
+        CxPlatEventWaitForever(ConnectionContext.ConnectionShutdownEvent);
         auto StopTime = steady_clock::now();
         PrintTransferSummary(StartTime, StopTime, TotalBytesSent, "sent");
-
-        cout << "Press any key to exit..." << endl;
-        getchar();
     } else {
         cout << "Error! You didn't specify listen or target!" << endl;
         return QUIC_STATUS_INVALID_STATE;
+    }
+
+    if (Wait) {
+        cout << "Press any key to exit..." << endl;
+        getchar();
     }
 
     return 0;
