@@ -13,10 +13,10 @@ RESULT_SERVER_STDOUT = 'server_stdout'
 
 def run_transfer(file, dest):
     server = subprocess.Popen(
-        "./quiccat -listen:* -port:8888 -destination:" + dest, stdout=subprocess.PIPE)
+        ["quiccat", "-listen:*", "-port:8888", "-destination:" + dest], stdout=subprocess.PIPE)
     time.sleep(1)
     client = subprocess.Popen(
-        "./quiccat -target:127.0.0.1 -port:8888 -file:" + file, stdout=subprocess.PIPE)
+        ["quiccat", "-target:127.0.0.1", "-port:8888", "-file:" + file], stdout=subprocess.PIPE)
     server.wait()
     client.wait()
     result = dict()
