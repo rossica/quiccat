@@ -29,5 +29,12 @@ jobs:
         name: ${{ inputs.os-family }}-${{ inputs.config }}-${{ github.sha }}
         path: ${{ github.workspace }}
 
+    - name: Make artifact executable
+      if: ${{ inputs.os-family == 'linux' }}
+      run: |
+            ls -lR
+            chmod u+x quiccat
+            ls -lR
+
     - name: Run Test
       run: python test/end2end.py
