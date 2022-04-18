@@ -1,3 +1,4 @@
+import encodings
 import subprocess
 import random
 import tempfile
@@ -25,6 +26,25 @@ def run_transfer(file, dest):
     result[RESULT_SERVER_RETURN] = server.returncode
     result[RESULT_SERVER_STDOUT] = server.stdout.read()
     return result
+
+def run_stdinout():
+    server = subprocess.Popen(
+        ["./quiccat", "-listen:*", "-port:8888"], stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+    time.sleep(0.5)
+    client = subprocess.Popen(
+        ["./quiccat", "-target:127.0.0.1", "-port:8888"], stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+    time.sleep(0.5)
+    expected = 'Connected!' + os.linesep
+    client_result = client.communicate(b'testtesttest')
+    server_result = server.communicate(b'helloworldhello')
+    print(client_result[0])
+    print(server_result[0])
+    # expected = 'testtesttest' + os.linesep
+    # client.stdin.write(bytes(expected))
+    # server_bytes = server.stdout.read(len(expected))
+    # print(server_bytes)
+    client.kill()
+    server.kill()
 
 def create_file(filename, size):
     r = random.Random()
@@ -79,6 +99,7 @@ def transfer_test(size):
             print(' Success!')
 
 if __name__ == '__main__':
+    # run_stdinout()
     transfer_test(1000)
     transfer_test(100000)
     transfer_test(200000)
