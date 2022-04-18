@@ -52,12 +52,12 @@ jobs:
     - name: Compress Files (Windows)
       if: ${{ matrix.os_family == 'windows'}}
       run: |
-            7z.exe a ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.zip ${{ github.workspace }}/${{ matrix.os_family }}-latest
+            7z.exe a ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.zip ${{ matrix.os_family }}-latest
 
     - name: Compress Files (Linux)
       if: ${{ matrix.os_family == 'linux'}}
       run: |
-            tar -cvf ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.tar.gz ${{ github.workspace }}/${{ matrix.os_family }}-latest
+            tar -cvf ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.tar.gz ${{ matrix.os_family }}-latest
 
     - name: Release
       uses: softprops/action-gh-release@v1
