@@ -1,8 +1,9 @@
 #pragma once
 
 #ifdef _WIN32
+#include <io.h>
 #else
-#include <sys/eventfd.h
+#include <sys/eventfd.h>
 #include <sys/select.h>
 #include <unistd.h>
 #include <errno.h>
@@ -44,7 +45,9 @@ ResetSelectableEvent(SelectableEvent Ev);
 // Utility functions
 //
 FileOrHandle
-WaitForFileOrEvent(FileOrHandle File, FileOrHandle Event);
+WaitForFileOrEvent(
+    _In_ FileOrHandle File,
+    _In_ FileOrHandle Event);
 
 FileOrHandle
 GetStdin();
