@@ -7,6 +7,9 @@
 #include <fstream>
 #include <filesystem>
 #include <chrono>
+#include <vector>
+#include <mutex>
+#include <utility>
 
 #ifndef _WIN32
 #define CX_PLATFORM_LINUX 1
@@ -17,3 +20,4 @@
 #include <quic_var_int.h>
 
 #include "auth.h"
+#include "platform.h"
