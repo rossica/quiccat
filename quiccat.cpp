@@ -152,10 +152,8 @@ QcReadStdInThread(
         }
         EndOfFile = ReadBytes == 0 || feof(stdin) || ferror(stdin);
         if (ReadBytes > 0) {
-            cout << "Sending " << ReadBytes << " bytes" << endl;
             ConnectionContext.SendQuicBuffer.Length = (uint32_t)ReadBytes;
             QUIC_SEND_FLAGS SendFlags = EndOfFile ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
-            if (EndOfFile) cout << "Reached end of file. sending FIN." << endl;
             if (QUIC_FAILED(Status = ConnectionContext.Stream->Send(&ConnectionContext.SendQuicBuffer, 1, SendFlags))) {
                 cout << "StreamSend failed with 0x" << hex << Status << endl;
                 ConnectionContext.Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
@@ -165,7 +163,6 @@ QcReadStdInThread(
         }
     } while (!EndOfFile);
     if (EndOfFile) {
-        cout << "Shutting down stream" << endl;
         ConnectionContext.Stream->Shutdown(QUIC_STATUS_SUCCESS, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL);
     }
 }
@@ -187,19 +184,20 @@ QcStdInStdOutStreamCallback(
         Connection->StartTime = steady_clock::now();
         break;
     case QUIC_STREAM_EVENT_RECEIVE: {
+        QUIC_STATUS Status = QUIC_STATUS_PENDING;
         unique_lock<mutex> Lock(Connection->RecvDataMutex);
         for (unsigned i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             Connection->RecvData.push_back(Event->RECEIVE.Buffers[i]);
         }
         Connection->BytesReceived += Event->RECEIVE.TotalBufferLength;
-        Connection->RecvDataCV.notify_one();
-        cout << "Received " << Event->RECEIVE.TotalBufferLength << " bytes" << endl;
         if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
-            cout << "Received FIN! shutting down stream" << endl;
             Stream->Shutdown(QUIC_STATUS_SUCCESS | QUIC_STREAM_SHUTDOWN_FLAG_INLINE);
-            return QUIC_STATUS_SUCCESS;
+            Status = QUIC_STATUS_SUCCESS;
+        } else {
+            Lock.unlock();
+            Connection->RecvDataCV.notify_one();
         }
-        return QUIC_STATUS_PENDING;
+        return Status;
     }
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
         if (Event->SEND_COMPLETE.Canceled) {
@@ -207,19 +205,12 @@ QcStdInStdOutStreamCallback(
         }
         CxPlatEventSet(Connection->SendCompleteEvent);
         break;
-    case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE: {
-        cout << "Peer send shutdown complete; shutting down stream" << endl;
-        Stream->Shutdown(QUIC_STATUS_SUCCESS, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL | QUIC_STREAM_SHUTDOWN_FLAG_INLINE);
-        break;
-    }
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE: {
         Connection->EndTime = steady_clock::now();
-        cout << "stream shutdown complete" << endl;
         unique_lock<mutex> Lock(Connection->RecvDataMutex);
         Connection->RecvData.push_back({0, nullptr});
         Connection->RecvDataCV.notify_one();
         if (!Event->SHUTDOWN_COMPLETE.ConnectionShutdown) {
-            cout << "shutting down connection" << endl;
             Connection->Connection->Shutdown(QUIC_STATUS_SUCCESS);
         }
         break;
@@ -564,7 +555,6 @@ int main(
     }
 
     MsQuicSettings Settings;
-    Settings.SetKeepAlive(20000);
 
     if (ListenAddress != nullptr) {
         // server
@@ -603,6 +593,8 @@ int main(
         } else {
             // stdin/stdout mode active, allow 1 bidi stream.
             Settings.SetPeerBidiStreamCount(1);
+            // For stdin/stdout, set a keepalive.
+            Settings.SetKeepAlive(20000);
         }
         MsQuicConfiguration Config(Registration, Alpn, Settings, Creds);
         if (!Config.IsValid()) {
@@ -689,6 +681,10 @@ int main(
             Creds.Type = QUIC_CREDENTIAL_TYPE_NONE;
             Creds.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
         }
+        if (FilePath == nullptr) {
+            // For stdin/stdout, set a keepalive.
+            Settings.SetKeepAlive(20000);
+        }
         MsQuicConfiguration Config(Registration, Alpn, Settings, Creds);
         MsQuicConnection Client(Registration, CleanUpManual, QcClientConnectionCallback, &ConnectionContext);
         ConnectionContext.Connection = &Client;
@@ -708,7 +704,6 @@ int main(
         }
 
         CxPlatEventWaitForever(ConnectionContext.StreamsReadyEvent);
-        cout << "Streams available!" << endl;
 
         ConnectionContext.CurrentSendSize = DefaultSendBufferSize;
         ConnectionContext.SendBuffer = make_unique<uint8_t[]>(ConnectionContext.CurrentSendSize);
