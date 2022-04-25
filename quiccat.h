@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#define _CRT_NONSTDC_NO_WARNINGS 1
 #define _CRT_SECURE_NO_WARNINGS 1
 #include <iostream>
 #include <memory>
@@ -7,6 +8,11 @@
 #include <fstream>
 #include <filesystem>
 #include <chrono>
+#include <vector>
+#include <mutex>
+#include <utility>
+#include <thread>
+#include <condition_variable>
 
 #ifndef _WIN32
 #define CX_PLATFORM_LINUX 1
@@ -17,3 +23,4 @@
 #include <quic_var_int.h>
 
 #include "auth.h"
+#include "platform.h"
