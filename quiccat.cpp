@@ -32,13 +32,13 @@ struct QcConnection {
     unique_ptr<uint8_t[]> SendBuffer;
     CXPLAT_EVENT SendCompleteEvent;
     QUIC_BUFFER SendQuicBuffer;
-    uint64_t FileSize = 0;
+    uint64_t FileSize{0};
     uint32_t CurrentSendSize = DefaultSendBufferSize;
     bool SendCanceled = false;
     // stdin/stdout variables
     vector<QUIC_BUFFER> RecvData;
+    condition_variable RecvDataCV;
     mutex RecvDataMutex;
-    SelectableEvent RecvEvent;
 };
 
 struct QcListener {
@@ -135,6 +135,41 @@ PrintTransferSummary(
     }
 }
 
+void
+QcReadStdInThread(
+    _In_ QcConnection& ConnectionContext)
+{
+    bool EndOfFile = false;
+    QUIC_STATUS Status;
+    do {
+        size_t ReadBytes = 0;
+        if (isatty(fileno(stdin))) {
+            if (fgets((char*)ConnectionContext.SendBuffer.get(), DefaultSendBufferSize, stdin) != nullptr) {
+                ReadBytes = strlen((char*)ConnectionContext.SendBuffer.get());
+            }
+        } else {
+            ReadBytes = fread(ConnectionContext.SendBuffer.get(), 1, DefaultSendBufferSize, stdin);
+        }
+        EndOfFile = ReadBytes == 0 || feof(stdin) || ferror(stdin);
+        if (ReadBytes > 0) {
+            cout << "Sending " << ReadBytes << " bytes" << endl;
+            ConnectionContext.SendQuicBuffer.Length = (uint32_t)ReadBytes;
+            QUIC_SEND_FLAGS SendFlags = EndOfFile ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
+            if (EndOfFile) cout << "Reached end of file. sending FIN." << endl;
+            if (QUIC_FAILED(Status = ConnectionContext.Stream->Send(&ConnectionContext.SendQuicBuffer, 1, SendFlags))) {
+                cout << "StreamSend failed with 0x" << hex << Status << endl;
+                ConnectionContext.Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
+                return;
+            }
+            CxPlatEventWaitForever(ConnectionContext.SendCompleteEvent);
+        }
+    } while (!EndOfFile);
+    if (EndOfFile) {
+        cout << "Shutting down stream" << endl;
+        ConnectionContext.Stream->Shutdown(QUIC_STATUS_SUCCESS, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL);
+    }
+}
+
 QUIC_STATUS
 QcStdInStdOutStreamCallback(
     _In_ MsQuicStream* Stream,
@@ -157,7 +192,7 @@ QcStdInStdOutStreamCallback(
             Connection->RecvData.push_back(Event->RECEIVE.Buffers[i]);
         }
         Connection->BytesReceived += Event->RECEIVE.TotalBufferLength;
-        SetSelectableEvent(Connection->RecvEvent);
+        Connection->RecvDataCV.notify_one();
         cout << "Received " << Event->RECEIVE.TotalBufferLength << " bytes" << endl;
         if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
             cout << "Received FIN! shutting down stream" << endl;
@@ -182,7 +217,7 @@ QcStdInStdOutStreamCallback(
         cout << "stream shutdown complete" << endl;
         unique_lock<mutex> Lock(Connection->RecvDataMutex);
         Connection->RecvData.push_back({0, nullptr});
-        SetSelectableEvent(Connection->RecvEvent);
+        Connection->RecvDataCV.notify_one();
         if (!Event->SHUTDOWN_COMPLETE.ConnectionShutdown) {
             cout << "shutting down connection" << endl;
             Connection->Connection->Shutdown(QUIC_STATUS_SUCCESS);
@@ -578,7 +613,6 @@ int main(
         CxPlatEventInitialize(&(ListenerContext.ConnectionReceivedEvent), false, false);
         CxPlatEventInitialize(&ListenerContext.ConnectionContext.ConnectionShutdownEvent, false, false);
         CxPlatEventInitialize(&(ListenerContext.ConnectionContext.SendCompleteEvent), false, false);
-        InitializeSelectableEvent(&ListenerContext.ConnectionContext.RecvEvent);
         MsQuicListener Listener(Registration, QcListenerCallback, &ListenerContext);
         ListenerContext.Listener = &Listener;
         if (!ConvertArgToAddress(ListenAddress, Port, &LocalAddr)) {
@@ -594,60 +628,31 @@ int main(
             // Start reading from stdin until EOF is read.
             ListenerContext.ConnectionContext.SendBuffer = make_unique<uint8_t[]>(DefaultSendBufferSize);
             ListenerContext.ConnectionContext.SendQuicBuffer.Buffer = ListenerContext.ConnectionContext.SendBuffer.get();
-            auto StdIn = GetStdin();
-            bool EndOfFile = false;
+            thread ReadStdIn(QcReadStdInThread, std::ref(ListenerContext.ConnectionContext));
+            ReadStdIn.detach();
             bool ConnectionClosed = false;
             do {
-                auto WaitResult = WaitForFileOrEvent(StdIn, ListenerContext.ConnectionContext.RecvEvent);
-                if (WaitResult == StdIn) {
-                    size_t ReadBytes = 0;
-                    if (isatty(fileno(stdin))) {
-                        if (fgets((char*)ListenerContext.ConnectionContext.SendBuffer.get(), DefaultSendBufferSize, stdin) != nullptr) {
-                            ReadBytes = strlen((char*)ListenerContext.ConnectionContext.SendBuffer.get());
-                        }
+                unique_lock<mutex> Lock(ListenerContext.ConnectionContext.RecvDataMutex);
+                ListenerContext.ConnectionContext.RecvDataCV.wait(
+                    Lock,
+                    [&ListenerContext]{return ListenerContext.ConnectionContext.RecvData.size() > 0;});
+                uint64_t ConsumedLength = 0;
+                for(auto& Data : ListenerContext.ConnectionContext.RecvData) {
+                    if (Data.Buffer == nullptr && Data.Length == 0) {
+                        // Connection closed
+                        ConnectionClosed = true;
+                        break;
                     } else {
-                        ReadBytes = fread(ListenerContext.ConnectionContext.SendBuffer.get(), 1, DefaultSendBufferSize, stdin);
+                        fwrite((char*)Data.Buffer, 1, Data.Length, stdout);
+                        ConsumedLength += Data.Length;
                     }
-                    EndOfFile = ReadBytes == 0 || feof(stdin) || ferror(stdin);
-                    if (ReadBytes > 0) {
-                        cout << "Sending " << ReadBytes << " bytes" << endl;
-                        ListenerContext.ConnectionContext.SendQuicBuffer.Length = (uint32_t)ReadBytes;
-                        QUIC_SEND_FLAGS SendFlags = EndOfFile ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
-                        if (EndOfFile) cout << "Reached end of file. sending FIN." << endl;
-                        if (QUIC_FAILED(Status = ListenerContext.ConnectionContext.Stream->Send(&ListenerContext.ConnectionContext.SendQuicBuffer, 1, SendFlags))) {
-                            cout << "StreamSend failed with 0x" << hex << Status << endl;
-                            return Status;
-                        }
-                        CxPlatEventWaitForever(ListenerContext.ConnectionContext.SendCompleteEvent);
-                    }
-                } else if (WaitResult == ListenerContext.ConnectionContext.RecvEvent) {
-                    unique_lock<mutex> Lock(ListenerContext.ConnectionContext.RecvDataMutex);
-                    uint64_t ConsumedLength = 0;
-                    for (auto& Data : ListenerContext.ConnectionContext.RecvData) {
-                        if (Data.Buffer == nullptr && Data.Length == 0) {
-                            ConnectionClosed = true;
-                            break;
-                        } else {
-                            fwrite((char*)Data.Buffer, 1, Data.Length, stdout);
-                            ConsumedLength += Data.Length;
-                        }
-                    }
-                    fflush(stdout);
-                    ListenerContext.ConnectionContext.RecvData.clear();
-                    if (!ConnectionClosed) {
-                        ListenerContext.ConnectionContext.Stream->ReceiveComplete(ConsumedLength);
-                        ResetSelectableEvent(ListenerContext.ConnectionContext.RecvEvent);
-                    }
-                } else {
-                    // Assume some kind of issue waiting and shutdown.
-                    cout << "wait failed" << endl;
-                    EndOfFile = true;
                 }
-            } while (!EndOfFile && !ConnectionClosed);
-            if (EndOfFile) {
-                cout << "server closing connection" << endl;
-                ListenerContext.ConnectionContext.Stream->Shutdown(QUIC_STATUS_SUCCESS, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL);
-            }
+                fflush(stdout);
+                ListenerContext.ConnectionContext.RecvData.clear();
+                if (!ConnectionClosed) {
+                    ListenerContext.ConnectionContext.Stream->ReceiveComplete(ConsumedLength);
+                }
+            } while (!ConnectionClosed);
         }
         CxPlatEventWaitForever(ListenerContext.ConnectionContext.ConnectionShutdownEvent);
         PrintTransferSummary(
@@ -662,7 +667,6 @@ int main(
         CxPlatEventInitialize(&ConnectionContext.SendCompleteEvent, false, false);
         CxPlatEventInitialize(&ConnectionContext.ConnectionShutdownEvent, false, false);
         CxPlatEventInitialize(&ConnectionContext.StreamsReadyEvent, false, false);
-        InitializeSelectableEvent(&ConnectionContext.RecvEvent);
         uint32_t Pkcs12Length = 0;
         unique_ptr<uint8_t[]> Pkcs12;
         MsQuicCredentialConfig Creds;
@@ -778,60 +782,30 @@ int main(
             auto StopTime = steady_clock::now();
             PrintTransferSummary(StartTime, StopTime, TotalBytesSent, "sent");
         } else {
-            auto StdIn = GetStdin();
-            bool EndOfFile = false;
+            ConnectionContext.Stream = &ClientStream;
+            thread ReadStdIn(QcReadStdInThread, std::ref(ConnectionContext));
+            ReadStdIn.detach();
             bool ConnectionClosed = false;
             do {
-                auto WaitResult = WaitForFileOrEvent(StdIn, ConnectionContext.RecvEvent);
-                if (WaitResult == StdIn) {
-                    size_t ReadBytes = 0;
-                    if (isatty(fileno(stdin))) {
-                        if (fgets((char*)ConnectionContext.SendBuffer.get(), DefaultSendBufferSize, stdin) != nullptr) {
-                            ReadBytes = strlen((char*)ConnectionContext.SendBuffer.get());
-                        }
+                unique_lock<mutex> Lock(ConnectionContext.RecvDataMutex);
+                ConnectionContext.RecvDataCV.wait(Lock, [&ConnectionContext]{return ConnectionContext.RecvData.size() > 0;});
+                uint64_t ConsumedLength = 0;
+                for(auto& Data : ConnectionContext.RecvData) {
+                    if (Data.Buffer == nullptr && Data.Length == 0) {
+                        // Connection closed
+                        ConnectionClosed = true;
+                        break;
                     } else {
-                        ReadBytes = fread(ConnectionContext.SendBuffer.get(), 1, DefaultSendBufferSize, stdin);
+                        fwrite((char*)Data.Buffer, 1, Data.Length, stdout);
+                        ConsumedLength += Data.Length;
                     }
-                    EndOfFile = ReadBytes == 0 || feof(stdin) || ferror(stdin);
-                    if (ReadBytes > 0) {
-                        cout << "Sending " << ReadBytes << " bytes" << endl;
-                        ConnectionContext.SendQuicBuffer.Length = (uint32_t)ReadBytes;
-                        QUIC_SEND_FLAGS SendFlags = EndOfFile ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
-                        if (EndOfFile) cout << "Reached end of file. sending FIN." << endl;
-                        if (QUIC_FAILED(Status = ClientStream.Send(&ConnectionContext.SendQuicBuffer, 1, SendFlags))) {
-                            cout << "StreamSend failed with 0x" << hex << Status << endl;
-                            return Status;
-                        }
-                        CxPlatEventWaitForever(ConnectionContext.SendCompleteEvent);
-                    }
-                } else if (WaitResult == ConnectionContext.RecvEvent) {
-                    unique_lock<mutex> Lock(ConnectionContext.RecvDataMutex);
-                    uint64_t ConsumedLength = 0;
-                    for(auto& Data : ConnectionContext.RecvData) {
-                        if (Data.Buffer == nullptr && Data.Length == 0) {
-                            // Connection closed
-                            ConnectionClosed = true;
-                            break;
-                        } else {
-                            fwrite((char*)Data.Buffer, 1, Data.Length, stdout);
-                            ConsumedLength += Data.Length;
-                        }
-                    }
-                    fflush(stdout);
-                    ConnectionContext.RecvData.clear();
-                    ClientStream.ReceiveComplete(ConsumedLength);
-                    ResetSelectableEvent(ConnectionContext.RecvEvent);
-                } else {
-                    // Assume some kind of issue waiting and shutdown.
-                    cout << "wait failed. exiting..." << endl;
-
-                    EndOfFile = true;
                 }
-            } while (!EndOfFile && !ConnectionClosed);
-            if (EndOfFile) {
-                cout << "Shutting down client stream" << endl;
-                ClientStream.Shutdown(QUIC_STATUS_SUCCESS, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL);
-            }
+                fflush(stdout);
+                ConnectionContext.RecvData.clear();
+                if (!ConnectionClosed) {
+                    ClientStream.ReceiveComplete(ConsumedLength);
+                }
+            } while (!ConnectionClosed);
             CxPlatEventWaitForever(ConnectionContext.ConnectionShutdownEvent);
             PrintTransferSummary(
                 ConnectionContext.StartTime,

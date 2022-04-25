@@ -1,4 +1,3 @@
-import encodings
 import subprocess
 import random
 import tempfile
@@ -39,8 +38,8 @@ def run_stdinout():
     server_result = server.communicate(b'helloworldhello')
     print(client_result[0])
     print(server_result[0])
-    # expected = 'testtesttest' + os.linesep
-    # client.stdin.write(bytes(expected))
+    # expected = b'testtesttest\n'
+    # client.stdin.write(expected)
     # server_bytes = server.stdout.read(len(expected))
     # print(server_bytes)
     client.kill()

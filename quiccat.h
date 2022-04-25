@@ -11,6 +11,8 @@
 #include <vector>
 #include <mutex>
 #include <utility>
+#include <thread>
+#include <condition_variable>
 
 #ifndef _WIN32
 #define CX_PLATFORM_LINUX 1
