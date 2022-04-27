@@ -20,11 +20,11 @@ const char* CertName = "quiccat";
 void
 PrintHexBuffer(const char* const Label, const uint8_t*const Buf, uint32_t Len)
 {
-    printf("%s: ", Label);
+    Log() << Label << ": ";
     for(unsigned i = 0; i < Len; i++) {
         printf("%02x", (unsigned char)Buf[i]);
     }
-    printf("\n");
+    Log() << std::endl;
 }
 
 EVP_PKEY*
@@ -38,14 +38,14 @@ QcGenerateSigningKey(
     uint8_t SigningKeyBytes[ED448_KEYLEN];
     int Ret = PKCS5_PBKDF2_HMAC(Password.c_str(), (int)Password.length(), Salt, SaltLen, PBKDFIterations, EVP_sha512(), sizeof(SigningKeyBytes), SigningKeyBytes);
     if (Ret != 1) {
-        printf("Failed to run PBKDF2!\n");
+        Log() << "Failed to run PBKDF2!\n";
         goto Error;
     }
 
     SigningKey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED448, nullptr, SigningKeyBytes, sizeof(SigningKeyBytes));
     if (SigningKey == nullptr) {
-        printf("Failed to create signing key!\n");
-        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){printf("%s", str); return 1;}, nullptr);
+        Log() << "Failed to create signing key!\n";
+        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){Log() << str << std::endl; return 1;}, nullptr);
         goto Error;
     }
 
@@ -78,55 +78,55 @@ QcGenerateAuthCertificate(
 
     EVP_PKEY_CTX *KeyContext = EVP_PKEY_CTX_new_id(EVP_PKEY_ED448, NULL);
     if (KeyContext == nullptr) {
-        printf("Failed to allocate Key context!\n");
+        Log() << "Failed to allocate Key context!\n";
         goto Error;
     }
 
     Ret = EVP_PKEY_keygen_init(KeyContext);
     if (Ret != 1) {
-        printf("Keygen init failed!\n");
+        Log() << "Keygen init failed!\n";
         goto Error;
     }
 
     Ret = EVP_PKEY_keygen(KeyContext, &PrivateKey);
     if (Ret != 1) {
-        printf("Keygen failed!\n");
+        Log() << "Keygen failed!\n";
         goto Error;
     }
 
     Ret = RAND_bytes(Salt, sizeof(Salt));
     if (Ret != 1) {
-        printf("Failed to get random bytes!\n");
+        Log() << "Failed to get random bytes!\n";
         goto Error;
     }
 
     Cert = X509_new();
     if (Cert == nullptr) {
-        printf("Failed to allocate X509!\n");
+        Log() << "Failed to allocate X509!\n";
         goto Error;
     }
 
     Ret = X509_set_version(Cert, 2);
     if (Ret != 1) {
-        printf("Failed to set certificate version!\n");
+        Log() << "Failed to set certificate version!\n";
         goto Error;
     }
 
     SaltBn = BN_bin2bn(Salt, sizeof(Salt), nullptr);
     if (SaltBn == nullptr) {
-        printf("Failed to convert Salt to BIGNUM!\n");
+        Log() << "Failed to convert Salt to BIGNUM!\n";
         goto Error;
     }
 
     SerialNumber = BN_to_ASN1_INTEGER(SaltBn, nullptr);
     if (SerialNumber == nullptr) {
-        printf("Failed to allocate serial number!\n");
+        Log() << "Failed to allocate serial number!\n";
         goto Error;
     }
 
     Ret = X509_set_serialNumber(Cert, SerialNumber);
     if (Ret != 1) {
-        printf("Failed to set serial number!\n");
+        Log() << "Failed to set serial number!\n";
         goto Error;
     }
 
@@ -135,24 +135,24 @@ QcGenerateAuthCertificate(
 
     Ret = X509_set_pubkey(Cert, PrivateKey);
     if (Ret != 1) {
-        printf("Failed to set public key on cert!\n");
+        Log() << "Failed to set public key on cert!\n";
         goto Error;
     }
 
     Name = X509_get_subject_name(Cert);
     if (Name == nullptr) {
-        printf("Failed to allocate subject name!\n");
+        Log() << "Failed to allocate subject name!\n";
         goto Error;
     }
     Ret = X509_NAME_add_entry_by_txt(Name, "CN", MBSTRING_ASC, (unsigned char*)CertName, -1, -1, 0);
     if (Ret != 1) {
-        printf("Failed to set subject name!\n");
+        Log() << "Failed to set subject name!\n";
         goto Error;
     }
 
     Ret = X509_set_issuer_name(Cert, Name);
     if (Ret != 1) {
-        printf("Failed to set issuer name!\n");
+        Log() << "Failed to set issuer name!\n";
         goto Error;
     }
 
@@ -163,20 +163,20 @@ QcGenerateAuthCertificate(
 
     Ret = X509_sign(Cert, SigningKey, nullptr);
     if (Ret == 0) {
-        printf("Failed to sign certificate!\n");
-        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){printf("%s\n", str); return 1;}, nullptr);
+        Log() << "Failed to sign certificate!\n";
+        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){Log() << str << std::endl; return 1;}, nullptr);
         goto Error;
     }
 
     NewPkcs12 = PKCS12_create("", CertName, PrivateKey, Cert, nullptr, -1, -1, 0, 0, 0);
     if (NewPkcs12 == nullptr) {
-        printf("Failed to create new PKCS12!\n");
+        Log() << "Failed to create new PKCS12!\n";
         goto Error;
     }
 
     Ret = i2d_PKCS12(NewPkcs12, nullptr);
     if (Ret <= 0) {
-        printf("Failed to get export buffer size of NewPkcs12!\n");
+        Log() << "Failed to get export buffer size of NewPkcs12!\n";
         goto Error;
     }
 
@@ -184,7 +184,7 @@ QcGenerateAuthCertificate(
 
     Pkcs12Buffer = new (std::nothrow) uint8_t[Pkcs12Length];
     if (Pkcs12Buffer == nullptr) {
-        printf("Failed to allocate %u bytes for Pkcs12!\n", Pkcs12Length);
+        Log() << "Failed to allocate " << Pkcs12Length << " bytes for Pkcs12!\n";
         goto Error;
     }
 
@@ -192,12 +192,12 @@ QcGenerateAuthCertificate(
 
     Ret = i2d_PKCS12(NewPkcs12, &Pkcs12BufferPtr);
     if (Ret < 0) {
-        printf("Failed to export NewPkcs12!\n");
+        Log() << "Failed to export NewPkcs12!\n";
         goto Error;
     }
 
     if ((uint32_t)Ret != Pkcs12Length) {
-        printf("Pkcs12 export length changed between calls!\n");
+        Log() << "Pkcs12 export length changed between calls!\n";
         goto Error;
     }
 
@@ -259,18 +259,18 @@ QcVerifyCertificate(
 
     SaltBn = ASN1_INTEGER_to_BN(SerialNumber, nullptr);
     if (SaltBn == nullptr) {
-        printf("Failed to convert ASN SerialNumber to BIGNUM Salt!\n");
+        Log() << "Failed to convert ASN SerialNumber to BIGNUM Salt!\n";
         goto Error;
     }
 
     if (BN_num_bytes(SaltBn) > (int)sizeof(Salt)) {
-        printf("Serial number is not correct size! %u vs %zu\n", BN_num_bytes(SaltBn), sizeof(Salt));
+        Log() << "Serial number is not correct size! " << BN_num_bytes(SaltBn) << " vs " << sizeof(Salt) << std::endl;
         goto Error;
     }
 
     Ret = BN_bn2binpad(SaltBn, Salt, sizeof(Salt));
     if (Ret != sizeof(Salt)) {
-        printf("BIGNUM conversion to binary is wrong size! %u vs %zu\n", Ret, sizeof(Salt));
+        Log() << "BIGNUM conversion to binary is wrong size! " << Ret << " vs " << sizeof(Salt) << std::endl;
         goto Error;
     }
 
@@ -283,15 +283,15 @@ QcVerifyCertificate(
     if (Ret == 1) {
         Result = true;
     } else if (Ret == 0) {
-        printf("Certificate failed signature verification!\n");
+        Log() << "Certificate failed signature verification!\n";
         goto Error;
     } else if (Ret == -1) {
-        printf("Certificate signature is malformed!\n");
-        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){printf("%s\n", str); return 1;}, nullptr);
+        Log() << "Certificate signature is malformed!\n";
+        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){Log() << str << std::endl; return 1;}, nullptr);
         goto Error;
     } else {
-        printf("Certificate failed validation for another reason!\n");
-        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){printf("%s\n", str); return 1;}, nullptr);
+        Log() << "Certificate failed validation for another reason!\n";
+        ERR_print_errors_cb([](const char* str, size_t /*len*/, void* /*u*/){Log() << str << std::endl; return 1;}, nullptr);
         goto Error;
     }
 

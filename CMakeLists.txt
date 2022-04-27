@@ -12,7 +12,7 @@ add_subdirectory(submodules/msquic)
 target_compile_features(inc INTERFACE cxx_std_20)
 
 # Add source to this project's executable.
-add_executable (quiccat "quiccat.cpp" "quiccat.h" "auth.cpp" "auth.h" "platform.h")
+add_executable (quiccat "quiccat.cpp" "quiccat.h" "log.h" "auth.cpp" "auth.h" "platform.h")
 target_link_libraries(quiccat msquic_static base_link OpenSSLQuic)
 target_compile_features(quiccat PRIVATE cxx_std_20)
 
