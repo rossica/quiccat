@@ -22,5 +22,6 @@
 #include <quic_platform.h>
 #include <quic_var_int.h>
 
+#include "log.h"
 #include "auth.h"
 #include "platform.h"
