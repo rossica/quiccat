@@ -3,6 +3,15 @@
 using namespace std;
 using namespace std::chrono;
 
+QcLogLevel CurrentLogLevel = LogInfo;
+std::ofstream NullLogger(
+#ifdef _WIN32
+    "nul"
+#else
+    "/dev/null"
+#endif
+    );
+
 const uint32_t DefaultSendBufferSize = 128 * 1024;
 const uint32_t MaxFileNameLength = 255;
 const uint32_t RandomPasswordLength = 64;
@@ -63,39 +72,39 @@ PrintProgress(
     const auto BytesRemaining = BytesComplete < BytesTotal ? BytesTotal - BytesComplete : 0;
     const auto EstimatedRemaining = (ElapsedTime / BytesComplete) * BytesRemaining;
 
-    Log() << "\r";
+    Log(LogInfo) << "\r";
     if (FileName.length() < 29) {
-        Log() << FileName;
+        Log(LogInfo) << FileName;
     } else {
-        Log() << FileName.substr(0,26) << "...";
+        Log(LogInfo) << FileName.substr(0,26) << "...";
     }
-    Log() << " [";
+    Log(LogInfo) << " [";
     int pos = (int)(ProgressBarWidth * ProgressFraction);
     for (int i = 0; i < ProgressBarWidth; ++i) {
         if (i <= pos) {
-            Log() << "|";
+            Log(LogInfo) << "|";
         } else {
-            Log() << " ";
+            Log(LogInfo) << " ";
         }
     }
-    Log() << "] " << setw(3) << (int)(ProgressFraction * 100.0) << "%";
-    Log() << " " << setw(3) << duration_cast<minutes>(EstimatedRemaining).count() << "min "
+    Log(LogInfo) << "] " << setw(3) << (int)(ProgressFraction * 100.0) << "%";
+    Log(LogInfo) << " " << setw(3) << duration_cast<minutes>(EstimatedRemaining).count() << "min "
         << setw(2) << (duration_cast<seconds>(EstimatedRemaining) - duration_cast<minutes>(EstimatedRemaining)).count() << "s";
     if (RateTime > steady_clock::duration(0)) {
         const auto BitsPerSecond =
             (RateBytes * 8 * steady_clock::duration::period::den) /
             (RateTime.count() * steady_clock::duration::period::num);
         if (BitsPerSecond >= 1000000000) {
-            Log() << " " << setw(5) << setprecision(4) << BitsPerSecond / 1000000000.0 << "Gbps";
+            Log(LogInfo) << " " << setw(5) << setprecision(4) << BitsPerSecond / 1000000000.0 << "Gbps";
         } else if (BitsPerSecond >= 1000000) {
-            Log() << " " << setw(5) << setprecision(4) << BitsPerSecond / 1000000.0 << "Mbps";
+            Log(LogInfo) << " " << setw(5) << setprecision(4) << BitsPerSecond / 1000000.0 << "Mbps";
         } else if (BitsPerSecond >= 1000) {
-            Log() << " " << setw(5) << setprecision(4) << BitsPerSecond / 1000.0 << "Kbps";
+            Log(LogInfo) << " " << setw(5) << setprecision(4) << BitsPerSecond / 1000.0 << "Kbps";
         } else {
-            Log() << " " << setw(5) << BitsPerSecond << "bps";
+            Log(LogInfo) << " " << setw(5) << BitsPerSecond << "bps";
         }
     }
-    Log() << flush;
+    Log(LogInfo) << flush;
 }
 
 void
@@ -112,26 +121,30 @@ PrintTransferSummary(
         (ElapsedTime.count() * steady_clock::duration::period::num);
         // ((BytesTransferred * 8.0) /
         // (ElapsedTime.count() * steady_clock::duration::period::num)) * steady_clock::duration::period::den;
-    Log() << dec << BytesTransferred << " bytes " << DirectionStr << " in ";
+    Log(LogInfo) << dec << BytesTransferred << " bytes " << DirectionStr << " in ";
+    if (ElapsedTime >= hours(1)) {
+        Log(LogInfo) << duration_cast<hours>(ElapsedTime).count() << "hr ";
+        ElapsedTime -= duration_cast<hours>(ElapsedTime);
+    }
     if (ElapsedTime >= minutes(1)) {
-        Log() << duration_cast<minutes>(ElapsedTime).count() << "min ";
+        Log(LogInfo) << duration_cast<minutes>(ElapsedTime).count() << "min ";
         ElapsedTime -= duration_cast<minutes>(ElapsedTime);
     }
     if (ElapsedTime >= seconds(1)) {
-        Log() << duration_cast<seconds>(ElapsedTime).count() << "s ";
+        Log(LogInfo) << duration_cast<seconds>(ElapsedTime).count() << "s ";
         ElapsedTime -= duration_cast<seconds>(ElapsedTime);
     }
     if (ElapsedTime >= milliseconds(1)) {
-        Log() << duration_cast<milliseconds>(ElapsedTime).count() << "ms";
+        Log(LogInfo) << duration_cast<milliseconds>(ElapsedTime).count() << "ms";
     }
     if (RateBps >= 1000000000) {
-        Log() << " (" << setprecision(4) << RateBps / 1000000000.0 << "Gbps)" << endl;
+        Log(LogInfo) << " (" << setprecision(4) << RateBps / 1000000000.0 << "Gbps)" << endl;
     } else if (RateBps >= 1000000) {
-        Log() << " (" << setprecision(4) << RateBps / 1000000.0 << "Mbps)" << endl;
+        Log(LogInfo) << " (" << setprecision(4) << RateBps / 1000000.0 << "Mbps)" << endl;
     } else if (RateBps >= 1000) {
-        Log() << " (" << setprecision(4) << RateBps / 1000.0 << "Kbps)" << endl;
+        Log(LogInfo) << " (" << setprecision(4) << RateBps / 1000.0 << "Kbps)" << endl;
     } else {
-        Log() << " (" << RateBps << "bps)" << endl;
+        Log(LogInfo) << " (" << RateBps << "bps)" << endl;
     }
 }
 
@@ -155,7 +168,7 @@ QcReadStdInThread(
             ConnectionContext.SendQuicBuffer.Length = (uint32_t)ReadBytes;
             QUIC_SEND_FLAGS SendFlags = EndOfFile ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
             if (QUIC_FAILED(Status = ConnectionContext.Stream->Send(&ConnectionContext.SendQuicBuffer, 1, SendFlags))) {
-                Log() << "StreamSend failed with 0x" << hex << Status << endl;
+                Log(LogError) << "StreamSend failed with 0x" << hex << Status << endl;
                 ConnectionContext.Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
                 return;
             }
@@ -178,7 +191,7 @@ QcStdInStdOutStreamCallback(
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_START_COMPLETE:
         if (QUIC_FAILED(Event->START_COMPLETE.Status)) {
-            Log() << "Stream start result: " << hex << Event->START_COMPLETE.Status << dec << endl;
+            Log(LogError) << "Stream start result: " << hex << Event->START_COMPLETE.Status << dec << endl;
             return Event->START_COMPLETE.Status;
         }
         Connection->StartTime = steady_clock::now();
@@ -232,7 +245,7 @@ QcFileSendStreamCallback(
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_START_COMPLETE:
         if (QUIC_FAILED(Event->START_COMPLETE.Status)) {
-            Log() << "Stream start result: " << hex << Event->START_COMPLETE.Status << dec << endl;
+            Log(LogError) << "Stream start result: " << hex << Event->START_COMPLETE.Status << dec << endl;
             return Event->START_COMPLETE.Status;
         }
         break;
@@ -262,7 +275,7 @@ QcFileRecvStreamCallback(
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_START_COMPLETE:
         if (QUIC_FAILED(Event->START_COMPLETE.Status)) {
-            Log() << "Stream start result: " << hex << Event->START_COMPLETE.Status << dec << endl;
+            Log(LogError) << "Stream start result: " << hex << Event->START_COMPLETE.Status << dec << endl;
             return Event->START_COMPLETE.Status;
         }
         break;
@@ -273,7 +286,7 @@ QcFileRecvStreamCallback(
             uint8_t FileNameLength = Event->RECEIVE.Buffers[0].Buffer[0];
 
             if (FileNameLength > Event->RECEIVE.Buffers[0].Length - 1) {
-                Log() << "File name is not contiguous" << endl;
+                Log(LogFatal) << "File name is not contiguous" << endl;
                 Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INVALID_PARAMETER);
                 return QUIC_STATUS_INTERNAL_ERROR;
             } else {
@@ -281,13 +294,13 @@ QcFileRecvStreamCallback(
             }
 
             if (Connection->FileName.find("..") != string::npos) {
-                Log() << "File name contains .. " << endl;
+                Log(LogFatal) << "File name contains .. " << endl;
                 Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INVALID_PARAMETER);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
 
             if (Connection->FileName.find(Connection->DestinationPath.preferred_separator) != string::npos) {
-                Log() << "File name contains path separator" << endl;
+                Log(LogFatal) << "File name contains path separator" << endl;
                 Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INVALID_PARAMETER);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
@@ -299,20 +312,20 @@ QcFileRecvStreamCallback(
                 Event->RECEIVE.Buffers[0].Buffer,
                 &Offset,
                 &FileLength)) {
-                Log() << "Failed to decode File size!" << endl;
+                Log(LogFatal) << "Failed to decode File size!" << endl;
                 Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
             Connection->FileSize = FileLength;
 
-            Log() << "Creating file: " << Connection->DestinationPath / Connection->FileName << endl;
+            Log(LogInfo) << "Creating file: " << Connection->DestinationPath / Connection->FileName << endl;
 
             Connection->DestinationFile.open(
                 Connection->DestinationPath / Connection->FileName,
                 ios::binary | ios::out);
 
             if (Connection->DestinationFile.fail()) {
-                Log() << "Failed to open " << Connection->DestinationPath / Connection->FileName << " for writing!" << endl;
+                Log(LogFatal) << "Failed to open " << Connection->DestinationPath / Connection->FileName << " for writing!" << endl;
                 Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
@@ -324,7 +337,7 @@ QcFileRecvStreamCallback(
             auto WriteLength = Event->RECEIVE.Buffers[i].Length - Offset;
             Connection->DestinationFile.write((char*)Event->RECEIVE.Buffers[i].Buffer + Offset, WriteLength);
             if (Connection->DestinationFile.fail()) {
-                Log() << "Failed to write to file!" << endl;
+                Log(LogFatal) << "Failed to write to file!" << endl;
                 Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
@@ -342,7 +355,7 @@ QcFileRecvStreamCallback(
             Connection->LastUpdate = Now;
             Connection->BytesReceivedSnapshot = Connection->BytesReceived;
             if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
-                Log() << endl;
+                Log(LogInfo) << endl;
             }
         }
         if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
@@ -372,7 +385,7 @@ QcServerConnectionCallback(
     auto ConnContext = (QcConnection*)Context;
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
-        Log() << "Connected!" << endl;
+        Log(LogInfo) << "Connected!" << endl;
         MsQuic->ListenerStop(*ConnContext->Listener->Listener);
         CxPlatEventSet(ConnContext->Listener->ConnectionReceivedEvent);
         break;
@@ -392,7 +405,7 @@ QcServerConnectionCallback(
         if (!QcVerifyCertificate(
             ConnContext->Password,
             Event->PEER_CERTIFICATE_RECEIVED.Certificate)) {
-            Log() << "Peer password doesn't match!" << endl;
+            Log(LogError) << "Peer password doesn't match!" << endl;
             return QUIC_STATUS_CONNECTION_REFUSED;
         }
         break;
@@ -412,7 +425,7 @@ QcClientConnectionCallback(
     auto ConnContext = (QcConnection*)Context;
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
-        Log() << "Connected!" << endl;
+        Log(LogInfo) << "Connected!" << endl;
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         CxPlatEventSet(ConnContext->ConnectionShutdownEvent);
@@ -424,7 +437,7 @@ QcClientConnectionCallback(
         if (!QcVerifyCertificate(
             ConnContext->Password,
             Event->PEER_CERTIFICATE_RECEIVED.Certificate)) {
-            Log() << "Peer password doesn't match!" << endl;
+            Log(LogError) << "Peer password doesn't match!" << endl;
             return QUIC_STATUS_CONNECTION_REFUSED;
         }
         break;
@@ -452,21 +465,21 @@ QcListenerCallback(
                 QcServerConnectionCallback,
                 &ListenerContext->ConnectionContext);
         if (Conn == nullptr) {
-            Log() << "Failed to allocate connection tracking structure!" << endl;
+            Log(LogError) << "Failed to allocate connection tracking structure!" << endl;
             return QUIC_STATUS_CONNECTION_REFUSED;
         }
         ListenerContext->ConnectionContext.Listener = ListenerContext;
         ListenerContext->ConnectionContext.Connection = Conn;
         QUIC_STATUS Status = Conn->SetConfiguration(*ListenerContext->Config);
         if (QUIC_FAILED(Status)) {
-            Log() << "Failed to set configuration on connection: " << hex << Status << endl;
+            Log(LogError) << "Failed to set configuration on connection: " << hex << Status << endl;
             return QUIC_STATUS_CONNECTION_REFUSED;
         }
         return QUIC_STATUS_SUCCESS;
     } else if (Event->Type == QUIC_LISTENER_EVENT_STOP_COMPLETE) {
         return QUIC_STATUS_SUCCESS;
     } else {
-        Log() << "Unhandled Listener Event: " << hex << Event->Type << endl;
+        Log(LogInfo) << "Unhandled Listener Event: " << hex << Event->Type << endl;
         return QUIC_STATUS_SUCCESS;
     }
 }
@@ -500,32 +513,32 @@ int main(
     TryGetValue(argc, argv, "wait", &Wait);
 
     if (TargetAddress && ListenAddress) {
-        Log() << "Can't set both listen and target addresses!" << endl;
+        Log(LogFatal) << "Can't set both listen and target addresses!" << endl;
         return QUIC_STATUS_INVALID_PARAMETER;
     } else if (TargetAddress == nullptr && ListenAddress == nullptr) {
-        Log() << "Must set either listen or target address!" << endl;
+        Log(LogFatal) << "Must set either listen or target address!" << endl;
         return QUIC_STATUS_INVALID_PARAMETER;
     }
 
     if (TargetAddress && DestinationPath) {
-        Log() << "Cannot use -destination with -target; Did you mean -file?" << endl;
+        Log(LogFatal) << "Cannot use -destination with -target; Did you mean -file?" << endl;
         return QUIC_STATUS_INVALID_PARAMETER;
     }
     if (ListenAddress && FilePath) {
-        Log() << "Cannot use -file with -listen; Did you mean -destination?" << endl;
+        Log(LogFatal) << "Cannot use -file with -listen; Did you mean -destination?" << endl;
         return QUIC_STATUS_INVALID_PARAMETER;
     }
 
     if (FilePath) {
         auto FileStatus = filesystem::status(FilePath);
         if (FileStatus.type() == filesystem::file_type::not_found) {
-            Log() << FilePath << " doesn't exist!" << endl;
+            Log(LogFatal) << FilePath << " doesn't exist!" << endl;
             return QUIC_STATUS_INVALID_PARAMETER;
         }
         if (FileStatus.type() == filesystem::file_type::directory ||
             FileStatus.type() == filesystem::file_type::none ||
             FileStatus.type() == filesystem::file_type::unknown) {
-            Log() << FilePath << " must be a file, or file-like!" << endl;
+            Log(LogFatal) << FilePath << " must be a file, or file-like!" << endl;
             return QUIC_STATUS_INVALID_PARAMETER;
         }
     }
@@ -533,24 +546,24 @@ int main(
     if (DestinationPath) {
         auto DestinationStatus = filesystem::status(DestinationPath);
         if (DestinationStatus.type() == filesystem::file_type::not_found) {
-            Log() << DestinationPath << " doesn't exist!" << endl;
+            Log(LogFatal) << DestinationPath << " doesn't exist!" << endl;
             return QUIC_STATUS_INVALID_PARAMETER;
         }
         if (DestinationStatus.type() != filesystem::file_type::directory) {
-            Log() << DestinationPath << " must be a directory!" << endl;
+            Log(LogFatal) << DestinationPath << " must be a directory!" << endl;
             return QUIC_STATUS_INVALID_PARAMETER;
         }
     }
 
     if (QUIC_FAILED(Status = Api.GetInitStatus())) {
-        Log() << "Failed to initialize MsQuic: 0x" << hex << Status << endl;
+        Log(LogFatal) << "Failed to initialize MsQuic: 0x" << hex << Status << endl;
         return Status;
     }
     MsQuic = &Api;
 
     MsQuicRegistration Registration("quiccat", QUIC_EXECUTION_PROFILE_TYPE_MAX_THROUGHPUT);
     if (!Registration.IsValid()) {
-        Log() << "Registration failed to open with " << hex << Registration.GetInitStatus() << endl;
+        Log(LogFatal) << "Registration failed to open with " << hex << Registration.GetInitStatus() << endl;
         return QUIC_STATUS_INTERNAL_ERROR;
     }
 
@@ -578,7 +591,7 @@ int main(
             TempPassword = string(RandomPassword, sizeof RandomPassword);
         }
         if (!QcGenerateAuthCertificate(TempPassword, Pkcs12, Pkcs12Length)) {
-            Log() << "Failed to generate auth certificate" << endl;
+            Log(LogFatal) << "Failed to generate auth certificate" << endl;
             return QUIC_STATUS_INTERNAL_ERROR;
         }
         Creds.CertificatePkcs12 = &Pkcs12Info;
@@ -598,7 +611,7 @@ int main(
         }
         MsQuicConfiguration Config(Registration, Alpn, Settings, Creds);
         if (!Config.IsValid()) {
-            Log() << "Configuration failed to init with: " << hex << Config.GetInitStatus() << endl;
+            Log(LogFatal) << "Configuration failed to init with: " << hex << Config.GetInitStatus() << endl;
             return Config.GetInitStatus();
         }
         ListenerContext.Config = &Config;
@@ -608,11 +621,11 @@ int main(
         MsQuicListener Listener(Registration, QcListenerCallback, &ListenerContext);
         ListenerContext.Listener = &Listener;
         if (!ConvertArgToAddress(ListenAddress, Port, &LocalAddr)) {
-            Log() << "Failed to convert address: " << ListenAddress << endl;
+            Log(LogFatal) << "Failed to convert address: " << ListenAddress << endl;
             return QUIC_STATUS_INVALID_PARAMETER;
         }
         if (QUIC_FAILED(Status = Listener.Start(Alpn, &LocalAddr))) {
-            Log() << "Failed to start listener: " << hex << Status << endl;
+            Log(LogFatal) << "Failed to start listener: " << hex << Status << endl;
             return Status;
         }
         CxPlatEventWaitForever(ListenerContext.ConnectionReceivedEvent);
@@ -670,7 +683,7 @@ int main(
                 | QUIC_CREDENTIAL_FLAG_DEFER_CERTIFICATE_VALIDATION;
             ConnectionContext.Password = string(Password);
             if (!QcGenerateAuthCertificate(ConnectionContext.Password, Pkcs12, Pkcs12Length)) {
-                Log() << "Failed to generate auth certificate" << endl;
+                Log(LogFatal) << "Failed to generate auth certificate" << endl;
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
             Pkcs12Info.Asn1Blob = Pkcs12.get();
@@ -695,11 +708,11 @@ int main(
             FilePath != nullptr ? QcFileSendStreamCallback : QcStdInStdOutStreamCallback,
             &ConnectionContext);
         if (QUIC_FAILED(ClientStream.Start(QUIC_STREAM_START_FLAG_SHUTDOWN_ON_FAIL | QUIC_STREAM_START_FLAG_IMMEDIATE))) {
-            Log() << "Failed to start stream!" << endl;
+            Log(LogFatal) << "Failed to start stream!" << endl;
             return QUIC_STATUS_INTERNAL_ERROR;
         }
         if (QUIC_FAILED(Client.Start(Config, TargetAddress, Port))) {
-            Log() << "Failed to start client connection!" << endl;
+            Log(LogFatal) << "Failed to start client connection!" << endl;
             return QUIC_STATUS_INTERNAL_ERROR;
         }
 
@@ -717,7 +730,7 @@ int main(
             auto FileName = Path.filename().generic_string();
 
             if (FileName.size() > MaxFileNameLength) {
-                Log() << "File name is too long! Actual: " << FileName.size() << " Maximum: " << MaxFileNameLength << endl;
+                Log(LogFatal) << "File name is too long! Actual: " << FileName.size() << " Maximum: " << MaxFileNameLength << endl;
                 return QUIC_STATUS_INVALID_PARAMETER;
             }
             *BufferCursor = (uint8_t)FileName.size();
@@ -732,7 +745,7 @@ int main(
 
             fstream File(Path, ios::binary | ios::in);
             if (File.fail()) {
-                Log() << "Failed to open file '" << FilePath << "' for read" << endl;
+                Log(LogFatal) << "Failed to open file '" << FilePath << "' for read" << endl;
                 return QUIC_STATUS_INVALID_PARAMETER;
             }
             bool EndOfFile = false;
@@ -749,7 +762,7 @@ int main(
                 ConnectionContext.SendQuicBuffer.Length += (uint32_t)BytesRead;
                 QUIC_SEND_FLAGS Flags = EndOfFile ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
                 if (QUIC_FAILED(Status = ClientStream.Send(&ConnectionContext.SendQuicBuffer, 1, Flags))) {
-                    Log() << "StreamSend failed with 0x" << hex << Status << endl;
+                    Log(LogFatal) << "StreamSend failed with 0x" << hex << Status << endl;
                     return Status;
                 }
                 CxPlatEventWaitForever(ConnectionContext.SendCompleteEvent);
@@ -766,7 +779,7 @@ int main(
                     LastUpdate = Now;
                     BytesSentSnapshot = TotalBytesSent;
                     if (EndOfFile) {
-                        Log() << endl;
+                        Log(LogInfo) << endl;
                     }
                 }
                 BufferCursor = ConnectionContext.SendBuffer.get();
@@ -809,12 +822,12 @@ int main(
                 "received");
         }
     } else {
-        Log() << "Error! You didn't specify listen or target!" << endl;
+        Log(LogFatal) << "Error! You didn't specify listen or target!" << endl;
         return QUIC_STATUS_INVALID_STATE;
     }
 
     if (Wait) {
-        Log() << "Press any key to exit..." << endl;
+        Log(LogFatal) << "Press any key to exit..." << endl;
         getchar();
     }
 
