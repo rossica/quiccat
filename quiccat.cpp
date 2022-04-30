@@ -34,6 +34,8 @@ struct QcConnection {
     QUIC_BUFFER SendQuicBuffer;
     uint64_t FileSize{0};
     uint32_t CurrentSendSize = DefaultSendBufferSize;
+    uint16_t UnidiStreams;
+    uint16_t BiDiStreams;
     bool SendCanceled = false;
     // stdin/stdout variables
     vector<QUIC_BUFFER> RecvData;
@@ -113,6 +115,10 @@ PrintTransferSummary(
         // ((BytesTransferred * 8.0) /
         // (ElapsedTime.count() * steady_clock::duration::period::num)) * steady_clock::duration::period::den;
     Log() << dec << BytesTransferred << " bytes " << DirectionStr << " in ";
+    if (ElapsedTime >= hours(1)) {
+        Log() << duration_cast<hours>(ElapsedTime).count() << "hr ";
+        ElapsedTime -= duration_cast<hours>(ElapsedTime);
+    }
     if (ElapsedTime >= minutes(1)) {
         Log() << duration_cast<minutes>(ElapsedTime).count() << "min ";
         ElapsedTime -= duration_cast<minutes>(ElapsedTime);
@@ -376,9 +382,13 @@ QcServerConnectionCallback(
         MsQuic->ListenerStop(*ConnContext->Listener->Listener);
         CxPlatEventSet(ConnContext->Listener->ConnectionReceivedEvent);
         break;
-    case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
+    case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE: {
+        unique_lock<mutex> Lock(ConnContext->RecvDataMutex);
+        ConnContext->RecvData.push_back({0, nullptr});
+        ConnContext->RecvDataCV.notify_one();
         CxPlatEventSet(ConnContext->ConnectionShutdownEvent);
         break;
+    }
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         ConnContext->Stream =
             new(nothrow) MsQuicStream(
@@ -418,6 +428,8 @@ QcClientConnectionCallback(
         CxPlatEventSet(ConnContext->ConnectionShutdownEvent);
         break;
     case QUIC_CONNECTION_EVENT_STREAMS_AVAILABLE:
+        ConnContext->UnidiStreams = Event->STREAMS_AVAILABLE.UnidirectionalCount;
+        ConnContext->BiDiStreams = Event->STREAMS_AVAILABLE.BidirectionalCount;
         CxPlatEventSet(ConnContext->StreamsReadyEvent);
         break;
     case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
@@ -704,6 +716,18 @@ int main(
         }
 
         CxPlatEventWaitForever(ConnectionContext.StreamsReadyEvent);
+        if (ConnectionContext.UnidiStreams && ConnectionContext.BiDiStreams) {
+            Log() << "Server misconfigured!" << endl;
+            return QUIC_STATUS_INTERNAL_ERROR;
+        }
+        if (FilePath && ConnectionContext.BiDiStreams) {
+            Log() << "Error: server in stdin/stdout mode; you are in file mode." << endl;
+            return QUIC_STATUS_INVALID_STATE;
+        }
+        if (!FilePath && ConnectionContext.UnidiStreams) {
+            Log() << "Error: server in file mode; you are in stdin/stdout mode." << endl;
+            return QUIC_STATUS_INVALID_STATE;
+        }
 
         ConnectionContext.CurrentSendSize = DefaultSendBufferSize;
         ConnectionContext.SendBuffer = make_unique<uint8_t[]>(ConnectionContext.CurrentSendSize);
