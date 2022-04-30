@@ -382,13 +382,14 @@ QcServerConnectionCallback(
         MsQuic->ListenerStop(*ConnContext->Listener->Listener);
         CxPlatEventSet(ConnContext->Listener->ConnectionReceivedEvent);
         break;
-    case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE: {
-        unique_lock<mutex> Lock(ConnContext->RecvDataMutex);
-        ConnContext->RecvData.push_back({0, nullptr});
-        ConnContext->RecvDataCV.notify_one();
+    case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
+        if (ConnContext->Stream == nullptr) {
+            unique_lock<mutex> Lock(ConnContext->RecvDataMutex);
+            ConnContext->RecvData.push_back({0, nullptr});
+            ConnContext->RecvDataCV.notify_one();
+        }
         CxPlatEventSet(ConnContext->ConnectionShutdownEvent);
         break;
-    }
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         ConnContext->Stream =
             new(nothrow) MsQuicStream(
