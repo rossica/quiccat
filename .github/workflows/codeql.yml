@@ -46,16 +46,12 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt-get install ninja-build
-        sudo apt-add-repository ppa:lttng/stable-2.12
-        sudo apt-get update
-        sudo apt-get install -y liblttng-ust-dev
 
-    - name: Pre-build tasks
+    - name: Pre-build dependencies
       run: |
         cmake --preset linux-debug
         cd out/build/linux-debug
         cmake --build . --target OpenSSL_Target
-        cmake --build . --target msquic.lttng
         cmake --build . --target msquic_static
 
     # Initializes the CodeQL tools for scanning.
