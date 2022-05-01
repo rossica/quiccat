@@ -17,8 +17,11 @@ on:
   pull_request:
     # The branches below must be a subset of the branches above
     branches: [ master ]
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.txt'
   schedule:
-    - cron: '15 0 * * 2'
+    - cron: '15 0 * * 5'
 
 jobs:
   analyze:
@@ -30,6 +33,11 @@ jobs:
       security-events: write
 
     steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@34cbc43f0b10c9dda284e663cf43c2ebaf83e956
+      with:
+        egress-policy: audit
+
     - name: Checkout repository
       uses: actions/checkout@v3
       with:
