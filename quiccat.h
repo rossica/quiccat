@@ -2,6 +2,7 @@
 
 #define _CRT_NONSTDC_NO_WARNINGS 1
 #define _CRT_SECURE_NO_WARNINGS 1
+#include <fcntl.h>
 #include <iostream>
 #include <memory>
 #include <string>
