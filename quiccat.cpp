@@ -8,6 +8,7 @@ const uint32_t MaxFileNameLength = 255;
 const uint32_t RandomPasswordLength = 64;
 const auto UpdateRate = milliseconds(500);
 
+MsQuicApi Api;
 const MsQuicApi* MsQuic;
 
 const MsQuicAlpn Alpn("quiccat");
@@ -490,7 +491,6 @@ int main(
     )
 {
     QUIC_STATUS Status;
-    MsQuicApi Api;
     const char* ListenAddress;
     const char* TargetAddress;
     const char* FilePath = nullptr;
@@ -755,7 +755,7 @@ int main(
             ConnectionContext.SendQuicBuffer.Length = (uint32_t)(1 + FileName.size() + QuicVarIntSize(ConnectionContext.FileSize));
             uint32_t BufferRemaining = ConnectionContext.CurrentSendSize - ConnectionContext.SendQuicBuffer.Length;
 
-            fstream File(Path, ios::binary | ios::in);
+            ifstream File(Path, ios::binary | ios::in);
             if (File.fail()) {
                 Log() << "Failed to open file '" << FilePath << "' for read" << endl;
                 return QUIC_STATUS_INVALID_PARAMETER;
