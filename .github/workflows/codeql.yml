@@ -55,6 +55,7 @@ jobs:
         cmake --preset linux-debug
         cd out/build/linux-debug
         cmake --build . --target OpenSSL_Target
+        cmake --build . --target msquic.lttng
         cmake --build . --target msquic_static
 
     # Initializes the CodeQL tools for scanning.
