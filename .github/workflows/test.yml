@@ -45,4 +45,4 @@ jobs:
     - uses: actions/upload-artifact@v3
       if: ${{ failure() && inputs.os-family == 'linux' }}
       with:
-        path: /temp/core*
+        path: /tmp/core*
