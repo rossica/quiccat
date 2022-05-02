@@ -6,7 +6,7 @@ cmake_minimum_required (VERSION 3.17)
 project ("quiccat")
 
 set(QUIC_TLS "openssl" CACHE STRING "TLS Library to use")
-set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
+set(QUIC_ENABLE_LOGGING OFF CACHE BOOL "Disable MsQuic logging")
 set(QUIC_BUILD_SHARED OFF CACHE BOOL "Statically linking")
 add_subdirectory(submodules/msquic)
 target_compile_features(inc INTERFACE cxx_std_20)
