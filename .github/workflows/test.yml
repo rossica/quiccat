@@ -33,7 +33,9 @@ jobs:
       if: ${{ inputs.os-family == 'linux' }}
       run: |
         ulimit -c unlimited
+        sudo mkdir /cores
         sudo chmod -R +rwx /cores/*
+        sudo sysctl -w kernel.core_pattern=/cores/%e.%p.%t
 
     - name: Make artifact executable
       if: ${{ inputs.os-family == 'linux' }}
