@@ -192,7 +192,6 @@ def stdinout_transfer_test(Size: int):
 if __name__ == '__main__':
     run_stdinout_close()
     run_stdout_handles()
-    for size in [100, 1000, 10000]:
-        stdinout_transfer_test(size)
     for size in [1000, 100000, 200000, 1000000, 100000000]:
         transfer_test(size)
+        stdinout_transfer_test(size)
