@@ -33,7 +33,7 @@ jobs:
       if: ${{ inputs.os-family == 'linux' }}
       run: |
         ulimit -c unlimited
-        sudo sysctl -w kernel.core_pattern=/tmp/core-%e.%p.%t
+        sudo sysctl -w kernel.core_pattern=core-%e.%p.%t
 
     - name: Make artifact executable
       if: ${{ inputs.os-family == 'linux' }}
@@ -46,4 +46,4 @@ jobs:
       if: ${{ failure() && inputs.os-family == 'linux' }}
       with:
         name: crashes
-        path: ${{ github.workspace }}/core*
+        path: ${{ github.workspace }}/*
