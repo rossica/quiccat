@@ -45,4 +45,5 @@ jobs:
     - uses: actions/upload-artifact@v3
       if: ${{ failure() && inputs.os-family == 'linux' }}
       with:
-        path: /tmp/core*
+        name: crashes
+        path: ${{ github.workspace }}/core*
