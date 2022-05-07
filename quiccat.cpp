@@ -110,11 +110,14 @@ PrintTransferSummary(
     )
 {
     auto ElapsedTime = StopTime - StartTime;
-    auto RateBps =
-        (BytesTransferred * 8.0 * steady_clock::duration::period::den) /
-        (ElapsedTime.count() * steady_clock::duration::period::num);
+    double RateBps = 0;
+    if (ElapsedTime > steady_clock::duration(0)) {
+        RateBps =
+            (BytesTransferred * 8.0 * steady_clock::duration::period::den) /
+            (ElapsedTime.count() * steady_clock::duration::period::num);
         // ((BytesTransferred * 8.0) /
         // (ElapsedTime.count() * steady_clock::duration::period::num)) * steady_clock::duration::period::den;
+    }
     Log() << dec << BytesTransferred << " bytes " << DirectionStr << " in ";
     if (ElapsedTime >= hours(1)) {
         Log() << duration_cast<hours>(ElapsedTime).count() << "hr ";
@@ -148,6 +151,10 @@ QcReadStdInThread(
 {
     bool EndOfFile = false;
     QUIC_STATUS Status;
+#ifdef _WIN32
+    // Windows interprets 0x1A as EOF unless you tell it to read stdin as binary
+    _setmode(_fileno(stdin), _O_BINARY);
+#endif
     do {
         size_t ReadBytes = 0;
         if (isatty(fileno(stdin))) {
@@ -630,6 +637,10 @@ int main(
         }
         CxPlatEventWaitForever(ListenerContext.ConnectionReceivedEvent);
         if (DestinationPath == nullptr) {
+#ifdef _WIN32
+            // Windows converts \n to \r\n unless you set this
+            _setmode(_fileno(stdout), _O_BINARY);
+#endif
             // Start reading from stdin until EOF is read.
             ListenerContext.ConnectionContext.SendBuffer = make_unique<uint8_t[]>(DefaultSendBufferSize);
             ListenerContext.ConnectionContext.SendQuicBuffer.Buffer = ListenerContext.ConnectionContext.SendBuffer.get();
@@ -802,6 +813,10 @@ int main(
             auto StopTime = steady_clock::now();
             PrintTransferSummary(StartTime, StopTime, TotalBytesSent, "sent");
         } else {
+#ifdef _WIN32
+            // Windows converts \n to \r\n unless you set this
+            _setmode(_fileno(stdout), _O_BINARY);
+#endif
             ConnectionContext.Stream = &ClientStream;
             thread ReadStdIn(QcReadStdInThread, std::ref(ConnectionContext));
             ReadStdIn.detach();
