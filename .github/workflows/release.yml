@@ -2,7 +2,7 @@ name: Release CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   build-windows-release:
@@ -61,7 +61,7 @@ jobs:
 
     - name: Release
       uses: softprops/action-gh-release@v1
-      if: ${{ github.ref == 'refs/heads/master' }}
+      if: ${{ github.ref == 'refs/heads/main' }}
       with:
         files: ${{ github.workspace }}/quiccat-latest-*
         name: Latest
@@ -74,4 +74,4 @@ jobs:
     - uses: actions/checkout@v3
     - name: Update tag
       uses: EndBug/latest-tag@v1.4.0
-      if: ${{ github.ref == 'refs/heads/master' }}
+      if: ${{ github.ref == 'refs/heads/main' }}
