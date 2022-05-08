@@ -50,6 +50,7 @@ jobs:
         egress-policy: block
         allowed-endpoints: >
           api.github.com:443
+          uploads.github.com:443
           pipelines.actions.githubusercontent.com:443
 
     - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
