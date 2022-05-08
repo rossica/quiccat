@@ -44,6 +44,16 @@ jobs:
         - os: ubuntu-latest
           os_family: linux
     steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@248ae51c2e8cc9622ecf50685c8bf7150c6e8813
+      with:
+        egress-policy: block
+        allowed-endpoints: >
+          azure.archive.ubuntu.com:80
+          boringssl.googlesource.com:443
+          github.com:443
+          pipelines.actions.githubusercontent.com:443
+
     - uses: actions/download-artifact@v3
       with:
         name: ${{ matrix.os_family }}-${{ matrix.config }}-${{ github.sha }}
@@ -71,6 +81,15 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@248ae51c2e8cc9622ecf50685c8bf7150c6e8813
+      with:
+        egress-policy: block
+        allowed-endpoints: >
+          azure.archive.ubuntu.com:80
+          boringssl.googlesource.com:443
+          github.com:443
+          pipelines.actions.githubusercontent.com:443
     - uses: actions/checkout@v3
     - name: Update tag
       uses: EndBug/latest-tag@v1.4.0
