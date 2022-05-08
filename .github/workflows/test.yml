@@ -18,6 +18,11 @@ jobs:
     name: Test ${{ inputs.os-family }} ${{ inputs.config }}
     runs-on: ${{ inputs.os }}
     steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@248ae51c2e8cc9622ecf50685c8bf7150c6e8813
+      with:
+        egress-policy: audit
+
     - uses: actions/checkout@v3
 
     - uses: actions/setup-python@v3
