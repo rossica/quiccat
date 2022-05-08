@@ -49,9 +49,7 @@ jobs:
       with:
         egress-policy: block
         allowed-endpoints: >
-          azure.archive.ubuntu.com:80
-          boringssl.googlesource.com:443
-          github.com:443
+          api.github.com:443
           pipelines.actions.githubusercontent.com:443
 
     - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
@@ -86,10 +84,8 @@ jobs:
       with:
         egress-policy: block
         allowed-endpoints: >
-          azure.archive.ubuntu.com:80
-          boringssl.googlesource.com:443
+          api.github.com:443
           github.com:443
-          pipelines.actions.githubusercontent.com:443
     - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
     - name: Update tag
       uses: EndBug/latest-tag@6d22a6738f5c33059e3a8c6ca5dcf8eaf8a14599
