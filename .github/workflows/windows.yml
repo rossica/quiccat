@@ -16,11 +16,11 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       with:
         submodules: recursive
-    - uses: ilammy/setup-nasm@v1.3.0
-    - uses: ilammy/msvc-dev-cmd@v1.10.0
+    - uses: ilammy/setup-nasm@229bfed4a21b01237d340787ea51fd7c50a49c54
+    - uses: ilammy/msvc-dev-cmd@d8610e2b41c6d0f0c3b4c46dad8df0fd826c68e1
 
     - name: Install Ninja
       run: |
@@ -35,7 +35,7 @@ jobs:
       run: cmake --build --preset windows-${{ inputs.config }}
 
     - name: Upload
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@6673cd052c4cd6fcf4b4e6e60ea986c889389535
       if: ${{ !failure() }}
       with:
         name: windows-${{ inputs.config }}-${{ github.sha }}

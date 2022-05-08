@@ -18,13 +18,24 @@ jobs:
     name: Test ${{ inputs.os-family }} ${{ inputs.config }}
     runs-on: ${{ inputs.os }}
     steps:
-    - uses: actions/checkout@v3
+    - name: Harden Runner
+      if: ${{ inputs.os-family == 'linux' }}
+      uses: step-security/harden-runner@248ae51c2e8cc9622ecf50685c8bf7150c6e8813
+      with:
+        egress-policy: block
+        allowed-endpoints: >
+          azure.archive.ubuntu.com:80
+          boringssl.googlesource.com:443
+          github.com:443
+          pipelines.actions.githubusercontent.com:443
 
-    - uses: actions/setup-python@v3
+    - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+
+    - uses: actions/setup-python@98f2ad02fd48d057ee3b4d4f66525b231c3e52b6
       with:
         python-version: '3.10'
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
       with:
         name: ${{ inputs.os-family }}-${{ inputs.config }}-${{ github.sha }}
         path: ${{ github.workspace }}
@@ -44,7 +55,7 @@ jobs:
     - name: Run Test
       run: python test/end2end.py
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@6673cd052c4cd6fcf4b4e6e60ea986c889389535
       if: ${{ failure() && inputs.os-family == 'linux' }}
       with:
         name: crashes

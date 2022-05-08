@@ -44,7 +44,17 @@ jobs:
         - os: ubuntu-latest
           os_family: linux
     steps:
-    - uses: actions/download-artifact@v3
+    - name: Harden Runner
+      uses: step-security/harden-runner@248ae51c2e8cc9622ecf50685c8bf7150c6e8813
+      with:
+        egress-policy: block
+        allowed-endpoints: >
+          azure.archive.ubuntu.com:80
+          boringssl.googlesource.com:443
+          github.com:443
+          pipelines.actions.githubusercontent.com:443
+
+    - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
       with:
         name: ${{ matrix.os_family }}-${{ matrix.config }}-${{ github.sha }}
         path: ${{ github.workspace }}/${{ matrix.os_family }}-latest
@@ -60,7 +70,7 @@ jobs:
             tar -cvf ${{ github.workspace }}/quiccat-latest-${{ matrix.os_family }}.tar.gz ${{ matrix.os_family }}-latest
 
     - name: Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@1e07f4398721186383de40550babbdf2b84acfc5
       if: ${{ github.ref == 'refs/heads/main' }}
       with:
         files: ${{ github.workspace }}/quiccat-latest-*
@@ -71,7 +81,16 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - name: Harden Runner
+      uses: step-security/harden-runner@248ae51c2e8cc9622ecf50685c8bf7150c6e8813
+      with:
+        egress-policy: block
+        allowed-endpoints: >
+          azure.archive.ubuntu.com:80
+          boringssl.googlesource.com:443
+          github.com:443
+          pipelines.actions.githubusercontent.com:443
+    - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
     - name: Update tag
-      uses: EndBug/latest-tag@v1.4.0
+      uses: EndBug/latest-tag@6d22a6738f5c33059e3a8c6ca5dcf8eaf8a14599
       if: ${{ github.ref == 'refs/heads/main' }}
