@@ -17,6 +17,7 @@ jobs:
   test:
     name: Test ${{ inputs.os-family }} ${{ inputs.config }}
     runs-on: ${{ inputs.os }}
+    timeout-minutes: 15
     steps:
     - name: Harden Runner
       if: ${{ inputs.os-family == 'linux' }}
