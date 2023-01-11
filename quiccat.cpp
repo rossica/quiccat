@@ -766,7 +766,6 @@ int main(
         } else {
             CxPlatEventWaitForever(ListenerContext.ConnectionShutdownEvent);
         }
-        auto Now = steady_clock::now();
         PrintTransferSummary(
             ListenerContext.TotalDuration,
             ListenerContext.TotalBytesReceived,

@@ -10,6 +10,9 @@ QUICCAT_BLOCK_SIZE = 131072
 RESULT_CLIENT_RETURN = 'client_return'
 RESULT_CLIENT_STDOUT = 'client_stdout'
 RESULT_CLIENT_STDERR = 'client_strerr'
+RESULT_CLIENT2_RETURN = 'client2_return'
+RESULT_CLIENT2_STDOUT = 'client2_stdout'
+RESULT_CLIENT2_STDERR = 'client2_strerr'
 RESULT_SERVER_RETURN = 'server_return'
 RESULT_SERVER_STDOUT = 'server_stdout'
 RESULT_SERVER_STDERR = 'server_stderr'
@@ -25,6 +28,26 @@ def run_transfer(File: str, Dest: str) -> dict:
     result = dict()
     result[RESULT_CLIENT_RETURN] = client.returncode
     result[RESULT_CLIENT_STDERR] = client.stderr.read()
+    result[RESULT_SERVER_RETURN] = server.returncode
+    result[RESULT_SERVER_STDERR] = server.stderr.read()
+    return result
+
+def run_multi_transfer(File1: str, File2: str, Dest: str) -> dict:
+    server = subprocess.Popen(
+        ["./quiccat", "-listen:*", "-port:8888", "-destination:" + Dest], stderr=subprocess.PIPE)
+    time.sleep(1)
+    client = subprocess.Popen(
+        ["./quiccat", "-target:127.0.0.1", "-port:8888", "-file:" + File1], stderr=subprocess.PIPE)
+    client2 = subprocess.Popen(
+        ["./quiccat", "-target:127.0.0.1", "-port:8888", "-file:" + File2], stderr=subprocess.PIPE)
+    server.wait()
+    client.wait()
+    client2.wait()
+    result = dict()
+    result[RESULT_CLIENT_RETURN] = client.returncode
+    result[RESULT_CLIENT_STDERR] = client.stderr.read()
+    result[RESULT_CLIENT2_RETURN] = client2.returncode
+    result[RESULT_CLIENT2_STDERR] = client2.stderr.read()
     result[RESULT_SERVER_RETURN] = server.returncode
     result[RESULT_SERVER_STDERR] = server.stderr.read()
     return result
@@ -168,6 +191,40 @@ def transfer_test(Size: int):
                 sys.exit("Transferred file was not identical!")
             print(' Success!')
 
+def multitransfer_test():
+    Size1 = 1000000
+    Size2 = 100000000
+    print('Testing transfer of a ' + str(Size1) + ' and ' + str(Size2) + ' byte file...', end='', flush=True)
+    with tempfile.TemporaryDirectory(prefix='src') as srcTemp:
+        with tempfile.TemporaryDirectory(prefix='dest') as destTemp:
+            srcFileName1 = "Test_" + str(Size1) + ".tmp"
+            srcFileName2 = "Test_" + str(Size2) + ".tmp"
+            srcFilePath1 = srcTemp + os.path.sep + srcFileName1
+            srcFilePath2 = srcTemp + os.path.sep + srcFileName2
+            create_file(srcFilePath1, Size1)
+            create_file(srcFilePath2, Size2)
+            results = run_multi_transfer(srcFilePath1, srcFilePath2, destTemp)
+            if results[RESULT_CLIENT_RETURN] != 0:
+                print(results[RESULT_CLIENT_STDERR])
+                sys.exit("Client1 return was non-zero! " + str(results[RESULT_CLIENT_RETURN]))
+            if results[RESULT_CLIENT2_RETURN] != 0:
+                print(results[RESULT_CLIENT2_STDERR])
+                sys.exit("Client2 return was non-zero! " + str(results[RESULT_CLIENT2_RETURN]))
+            if results[RESULT_SERVER_RETURN] != 0:
+                print(results[RESULT_SERVER_STDERR])
+                sys.exit("Server return was non-zero! " + str(results[RESULT_SERVER_RETURN]))
+            if not compare_files(srcFilePath1, destTemp + os.path.sep + srcFileName1):
+                print(results[RESULT_CLIENT_STDERR])
+                print(results[RESULT_CLIENT2_STDERR])
+                print(results[RESULT_SERVER_STDERR])
+                sys.exit("Transferred file1 was not identical!")
+            if not compare_files(srcFilePath2, destTemp + os.path.sep + srcFileName2):
+                print(results[RESULT_CLIENT_STDERR])
+                print(results[RESULT_CLIENT2_STDERR])
+                print(results[RESULT_SERVER_STDERR])
+                sys.exit("Transferred file2 was not identical!")
+            print(' Success!')
+
 def stdinout_transfer_test(Size: int):
     print('Testing transfer of a ' + str(Size) + ' byte file via stdout...', end='', flush=True)
     with tempfile.TemporaryDirectory() as tempDir:
@@ -195,3 +252,4 @@ if __name__ == '__main__':
     for size in [1000, 100000, 200000, 1000000, 100000000]:
         transfer_test(size)
         # stdinout_transfer_test(size)
+    multitransfer_test()
