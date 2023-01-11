@@ -34,22 +34,22 @@ def run_transfer(File: str, Dest: str) -> dict:
 
 def run_multi_transfer(File1: str, File2: str, Dest: str) -> dict:
     server = subprocess.Popen(
-        ["./quiccat", "-listen:*", "-port:8888", "-destination:" + Dest], stderr=subprocess.PIPE)
+        ["./quiccat", "-listen:*", "-port:8888", "-wait:1", "-destination:" + Dest], stderr=subprocess.PIPE, stdin=subprocess.PIPE)
     time.sleep(1)
     client = subprocess.Popen(
         ["./quiccat", "-target:127.0.0.1", "-port:8888", "-file:" + File1], stderr=subprocess.PIPE)
     client2 = subprocess.Popen(
         ["./quiccat", "-target:127.0.0.1", "-port:8888", "-file:" + File2], stderr=subprocess.PIPE)
-    server.wait()
     client.wait()
     client2.wait()
+    server_result = server.communicate(input=b"\n", timeout=5)
     result = dict()
     result[RESULT_CLIENT_RETURN] = client.returncode
     result[RESULT_CLIENT_STDERR] = client.stderr.read()
     result[RESULT_CLIENT2_RETURN] = client2.returncode
     result[RESULT_CLIENT2_STDERR] = client2.stderr.read()
     result[RESULT_SERVER_RETURN] = server.returncode
-    result[RESULT_SERVER_STDERR] = server.stderr.read()
+    result[RESULT_SERVER_STDERR] = server_result[1]
     return result
 
 def run_stdout_transfer(File: str, Dest: str) -> dict:
