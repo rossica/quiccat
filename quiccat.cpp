@@ -23,7 +23,6 @@ struct QcConnection {
     CXPLAT_EVENT StreamsReadyEvent;
     string Password;
     ofstream DestinationFile;
-    filesystem::path DestinationPath;
     string FileName;
     uint64_t BytesReceived;
     uint64_t BytesReceivedSnapshot;
@@ -48,7 +47,16 @@ struct QcListener {
     MsQuicConfiguration* Config;
     MsQuicListener* Listener;
     CXPLAT_EVENT ConnectionReceivedEvent;
-    QcConnection ConnectionContext;
+    CXPLAT_EVENT ConnectionShutdownEvent;
+    string Password;
+    filesystem::path DestinationPath;
+    vector<QcConnection*> Connections;
+    mutex ConnectionListMutex;
+    mutex ProgressMutex;
+    uint64_t TotalBytesReceived;
+    steady_clock::duration TotalDuration;
+    steady_clock::time_point LastUpdate;
+    bool Wait;
 };
 
 void
@@ -61,16 +69,19 @@ PrintProgress(
     _In_ const steady_clock::duration RateTime
     )
 {
-    static const int ProgressBarWidth = 40;
+    static const int ProgressBarWidth = 20;
+    static const int FileNameWidth = 32;
+    static const int Precision = 3;
     const float ProgressFraction = (float)BytesComplete / BytesTotal;
     const auto BytesRemaining = BytesComplete < BytesTotal ? BytesTotal - BytesComplete : 0;
-    const auto EstimatedRemaining = (ElapsedTime / BytesComplete) * BytesRemaining;
+    const auto EstimatedRemaining = BytesComplete > 0 ? (ElapsedTime / BytesComplete) * BytesRemaining : minutes(999);
 
     Log() << "\r";
-    if (FileName.length() < 29) {
-        Log() << FileName;
+    if (FileName.length() <= FileNameWidth) {
+        Log() << setw(FileNameWidth - 1) << left << FileName;
     } else {
-        Log() << FileName.substr(0,26) << "...";
+        const auto HalfWord = (FileNameWidth - 3) / 2;
+        Log() << FileName.substr(0,HalfWord) << "..." << FileName.substr(FileName.length() - HalfWord);
     }
     Log() << " [";
     int pos = (int)(ProgressBarWidth * ProgressFraction);
@@ -81,7 +92,7 @@ PrintProgress(
             Log() << " ";
         }
     }
-    Log() << "] " << setw(3) << (int)(ProgressFraction * 100.0) << "%";
+    Log() << "] " << setw(3) << right << (int)(ProgressFraction * 100.0) << "%";
     Log() << " " << setw(3) << duration_cast<minutes>(EstimatedRemaining).count() << "min "
         << setw(2) << (duration_cast<seconds>(EstimatedRemaining) - duration_cast<minutes>(EstimatedRemaining)).count() << "s";
     if (RateTime > steady_clock::duration(0)) {
@@ -89,27 +100,71 @@ PrintProgress(
             (RateBytes * 8 * steady_clock::duration::period::den) /
             (RateTime.count() * steady_clock::duration::period::num);
         if (BitsPerSecond >= 1000000000) {
-            Log() << " " << setw(5) << setprecision(4) << BitsPerSecond / 1000000000.0 << "Gbps";
+            Log() << " " << setw(Precision + 1) << setprecision(Precision) << BitsPerSecond / 1000000000.0 << "Gbps";
         } else if (BitsPerSecond >= 1000000) {
-            Log() << " " << setw(5) << setprecision(4) << BitsPerSecond / 1000000.0 << "Mbps";
+            Log() << " " << setw(Precision + 1) << setprecision(Precision) << BitsPerSecond / 1000000.0 << "Mbps";
         } else if (BitsPerSecond >= 1000) {
-            Log() << " " << setw(5) << setprecision(4) << BitsPerSecond / 1000.0 << "Kbps";
+            Log() << " " << setw(Precision + 1) << setprecision(Precision) << BitsPerSecond / 1000.0 << "Kbps";
         } else {
-            Log() << " " << setw(5) << BitsPerSecond << "bps";
+            Log() << " " << setw(Precision + 1) << BitsPerSecond << "bps";
         }
     }
     Log() << flush;
 }
 
 void
+PrintProgressAll(
+    _In_ QcListener& Listener,
+    _In_ steady_clock::time_point& Now,
+    _In_ bool FinRecieved
+    )
+{
+    static const int ESC = 27;
+    if (FinRecieved) {
+        Listener.ProgressMutex.lock();
+    } else if (!Listener.ProgressMutex.try_lock()) {
+        return;
+    }
+    if (Now - Listener.LastUpdate >= UpdateRate || FinRecieved) {
+        Listener.LastUpdate = Now;
+        unique_lock<mutex> Lock(Listener.ConnectionListMutex);
+        std::sort(
+            Listener.Connections.begin(),
+            Listener.Connections.end(),
+            [](const QcConnection* a, const QcConnection* b) {
+                return a->BytesReceived/(double)a->FileSize > b->BytesReceived/(double)b->FileSize;
+            });
+        // move cursor back the number of lines as there are connections
+        auto ConnectionCount = Listener.Connections.size();
+        Log() << static_cast<char>(ESC) << '[' << ConnectionCount << 'A';
+        for (auto Connection : Listener.Connections) {
+            Log() << static_cast<char>(ESC) << "[2K";
+            PrintProgress(
+                Connection->FileName,
+                Connection->BytesReceived,
+                Connection->FileSize,
+                Now - Connection->StartTime,
+                Connection->BytesReceived - Connection->BytesReceivedSnapshot,
+                Now - Connection->LastUpdate);
+            /*if (ConnectionCount-- > 0)*/ {
+                Log() << endl;
+            }
+            Connection->LastUpdate = Now;
+            Connection->BytesReceivedSnapshot = Connection->BytesReceived;
+        }
+    }
+    // Hold the lock the entire time in case a 2nd FinReceived comes in while
+    // already processing one.
+    Listener.ProgressMutex.unlock();
+}
+
+void
 PrintTransferSummary(
-    _In_ const steady_clock::time_point StartTime,
-    _In_ const steady_clock::time_point StopTime,
+    _In_ steady_clock::duration ElapsedTime,
     _In_ const uint64_t BytesTransferred,
     _In_ const char* DirectionStr
     )
 {
-    auto ElapsedTime = StopTime - StartTime;
     double RateBps = 0;
     if (ElapsedTime > steady_clock::duration(0)) {
         RateBps =
@@ -159,7 +214,7 @@ QcReadStdInThread(
         size_t ReadBytes = 0;
         if (isatty(fileno(stdin))) {
             if (fgets((char*)ConnectionContext.SendBuffer.get(), DefaultSendBufferSize, stdin) != nullptr) {
-                ReadBytes = strlen((char*)ConnectionContext.SendBuffer.get());
+                ReadBytes = strlen((char*)ConnectionContext.SendBuffer.get()); // this buffer goes away with the first connection to go away. When the whole connection goes away, this thread should too. but how?
             }
         } else {
             ReadBytes = fread(ConnectionContext.SendBuffer.get(), 1, DefaultSendBufferSize, stdin);
@@ -300,7 +355,7 @@ QcFileRecvStreamCallback(
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
 
-            if (Connection->FileName.find(Connection->DestinationPath.preferred_separator) != string::npos) {
+            if (Connection->FileName.find(Connection->Listener->DestinationPath.preferred_separator) != string::npos) {
                 Log() << "File name contains path separator" << endl;
                 Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INVALID_PARAMETER);
                 return QUIC_STATUS_INTERNAL_ERROR;
@@ -319,14 +374,14 @@ QcFileRecvStreamCallback(
             }
             Connection->FileSize = FileLength;
 
-            Log() << "Creating file: " << Connection->DestinationPath / Connection->FileName << endl;
+            // Log() << "Creating file: " << Connection->Listener->DestinationPath / Connection->FileName << endl;
 
             Connection->DestinationFile.open(
-                Connection->DestinationPath / Connection->FileName,
+                Connection->Listener->DestinationPath / Connection->FileName,
                 ios::binary | ios::out);
 
             if (Connection->DestinationFile.fail()) {
-                Log() << "Failed to open " << Connection->DestinationPath / Connection->FileName << " for writing!" << endl;
+                Log() << "Failed to open " << Connection->Listener->DestinationPath / Connection->FileName << " for writing!" << endl;
                 Stream->Shutdown((QUIC_UINT62)QUIC_STATUS_INTERNAL_ERROR);
                 return QUIC_STATUS_INTERNAL_ERROR;
             }
@@ -345,20 +400,10 @@ QcFileRecvStreamCallback(
             Offset = 0;
         }
         Connection->BytesReceived += Event->RECEIVE.TotalBufferLength;
-        if (Now - Connection->LastUpdate >= UpdateRate || Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
-            PrintProgress(
-                Connection->FileName,
-                Connection->BytesReceived,
-                Connection->FileSize,
-                Now - Connection->StartTime,
-                Connection->BytesReceived - Connection->BytesReceivedSnapshot,
-                Now - Connection->LastUpdate);
-            Connection->LastUpdate = Now;
-            Connection->BytesReceivedSnapshot = Connection->BytesReceived;
-            if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
-                Log() << endl;
-            }
-        }
+        PrintProgressAll(
+            *Connection->Listener,
+            Now,
+            Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN);
         if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
             Connection->EndTime = Now;
             Connection->DestinationFile.flush();
@@ -387,7 +432,9 @@ QcServerConnectionCallback(
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
         Log() << "Connected!" << endl;
-        MsQuic->ListenerStop(*ConnContext->Listener->Listener);
+        if (!ConnContext->Listener->Wait) {
+            MsQuic->ListenerStop(*ConnContext->Listener->Listener);
+        }
         CxPlatEventSet(ConnContext->Listener->ConnectionReceivedEvent);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
@@ -396,14 +443,30 @@ QcServerConnectionCallback(
             ConnContext->RecvData.push_back({0, nullptr});
             ConnContext->RecvDataCV.notify_one();
         }
-        CxPlatEventSet(ConnContext->ConnectionShutdownEvent);
+        if (!ConnContext->Listener->Wait) {
+            CxPlatEventSet(ConnContext->Listener->ConnectionShutdownEvent);
+        }
+        {
+            unique_lock<mutex> Lock(ConnContext->Listener->ConnectionListMutex);
+            for (auto it = ConnContext->Listener->Connections.begin();
+                it != ConnContext->Listener->Connections.end();
+                ++it) {
+                if (*it == ConnContext) {
+                    ConnContext->Listener->Connections.erase(it);
+                    break;
+                }
+            }
+        }
+        ConnContext->Listener->TotalDuration += (ConnContext->EndTime - ConnContext->StartTime);
+        ConnContext->Listener->TotalBytesReceived += ConnContext->BytesReceived;
+        delete ConnContext;
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         ConnContext->Stream =
             new(nothrow) MsQuicStream(
                 Event->PEER_STREAM_STARTED.Stream,
                 CleanUpAutoDelete,
-                ConnContext->DestinationPath.empty() ? QcStdInStdOutStreamCallback : QcFileRecvStreamCallback,
+                ConnContext->Listener->DestinationPath.empty() ? QcStdInStdOutStreamCallback : QcFileRecvStreamCallback,
                 Context);
         ConnContext->StartTime = steady_clock::now();
         break;
@@ -466,22 +529,37 @@ QcListenerCallback(
 {
     QcListener* ListenerContext = (QcListener*)Context;
     if (Event->Type == QUIC_LISTENER_EVENT_NEW_CONNECTION) {
+        if (ListenerContext->DestinationPath.empty() && ListenerContext->Connections.size() == 1) {
+            // In stdin/stdout mode, and a connection is already active.
+            // Refuse connections until the current one completes.
+            return QUIC_STATUS_CONNECTION_REFUSED;
+        }
+        QcConnection* NewConn = new(nothrow) QcConnection();
+        if (NewConn == nullptr) {
+            Log() << "Failed to allocate connection context!" << endl;
+            return QUIC_STATUS_CONNECTION_REFUSED;
+        }
+        CxPlatEventInitialize(&NewConn->SendCompleteEvent, false, false);
         MsQuicConnection* Conn =
             new(nothrow) MsQuicConnection(
                 Event->NEW_CONNECTION.Connection,
                 CleanUpAutoDelete,
                 QcServerConnectionCallback,
-                &ListenerContext->ConnectionContext);
+                NewConn);
         if (Conn == nullptr) {
             Log() << "Failed to allocate connection tracking structure!" << endl;
             return QUIC_STATUS_CONNECTION_REFUSED;
         }
-        ListenerContext->ConnectionContext.Listener = ListenerContext;
-        ListenerContext->ConnectionContext.Connection = Conn;
+        NewConn->Connection = Conn;
+        NewConn->Listener = ListenerContext;
         QUIC_STATUS Status = Conn->SetConfiguration(*ListenerContext->Config);
         if (QUIC_FAILED(Status)) {
             Log() << "Failed to set configuration on connection: " << hex << Status << endl;
             return QUIC_STATUS_CONNECTION_REFUSED;
+        }
+        {
+            unique_lock<mutex> Lock(ListenerContext->ConnectionListMutex);
+            ListenerContext->Connections.push_back(NewConn);
         }
         return QUIC_STATUS_SUCCESS;
     } else if (Event->Type == QUIC_LISTENER_EVENT_STOP_COMPLETE) {
@@ -562,6 +640,13 @@ int main(
         }
     }
 
+#ifdef _WIN32
+    HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+    if (h) {
+        SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT);
+    }
+#endif
+
     if (QUIC_FAILED(Status = Api.GetInitStatus())) {
         Log() << "Failed to initialize MsQuic: 0x" << hex << Status << endl;
         return Status;
@@ -575,6 +660,7 @@ int main(
     }
 
     MsQuicSettings Settings;
+    Settings.SetDisconnectTimeoutMs(6000);
 
     if (ListenAddress != nullptr) {
         // server
@@ -586,7 +672,7 @@ int main(
         string TempPassword;
         Creds.Flags = QUIC_CREDENTIAL_FLAG_NONE;
         if (Password != nullptr) {
-            ListenerContext.ConnectionContext.Password = string(Password);
+            ListenerContext.Password = string(Password);
             TempPassword = string(Password);
             Creds.Flags |=
                 QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED
@@ -609,7 +695,7 @@ int main(
         if (DestinationPath != nullptr) {
             // File mode active, allow 1 unidi stream for sending a file.
             Settings.SetPeerUnidiStreamCount(1);
-            ListenerContext.ConnectionContext.DestinationPath = DestinationPath;
+            ListenerContext.DestinationPath = DestinationPath;
         } else {
             // stdin/stdout mode active, allow 1 bidi stream.
             Settings.SetPeerBidiStreamCount(1);
@@ -622,9 +708,9 @@ int main(
             return Config.GetInitStatus();
         }
         ListenerContext.Config = &Config;
+        ListenerContext.Wait = Wait;
         CxPlatEventInitialize(&(ListenerContext.ConnectionReceivedEvent), false, false);
-        CxPlatEventInitialize(&ListenerContext.ConnectionContext.ConnectionShutdownEvent, false, false);
-        CxPlatEventInitialize(&(ListenerContext.ConnectionContext.SendCompleteEvent), false, false);
+        CxPlatEventInitialize(&(ListenerContext.ConnectionShutdownEvent), false, false);
         MsQuicListener Listener(Registration, QcListenerCallback, &ListenerContext);
         ListenerContext.Listener = &Listener;
         if (!ConvertArgToAddress(ListenAddress, Port, &LocalAddr)) {
@@ -635,46 +721,54 @@ int main(
             Log() << "Failed to start listener: " << hex << Status << endl;
             return Status;
         }
-        CxPlatEventWaitForever(ListenerContext.ConnectionReceivedEvent);
         if (DestinationPath == nullptr) {
 #ifdef _WIN32
             // Windows converts \n to \r\n unless you set this
             _setmode(_fileno(stdout), _O_BINARY);
 #endif
-            // Start reading from stdin until EOF is read.
-            ListenerContext.ConnectionContext.SendBuffer = make_unique<uint8_t[]>(DefaultSendBufferSize);
-            ListenerContext.ConnectionContext.SendQuicBuffer.Buffer = ListenerContext.ConnectionContext.SendBuffer.get();
-            thread ReadStdIn(QcReadStdInThread, std::ref(ListenerContext.ConnectionContext));
-            ReadStdIn.detach();
-            bool ConnectionClosed = false;
             do {
-                unique_lock<mutex> Lock(ListenerContext.ConnectionContext.RecvDataMutex);
-                ListenerContext.ConnectionContext.RecvDataCV.wait(
-                    Lock,
-                    [&ListenerContext]{return ListenerContext.ConnectionContext.RecvData.size() > 0;});
-                uint64_t ConsumedLength = 0;
-                for(auto& Data : ListenerContext.ConnectionContext.RecvData) {
-                    if (Data.Buffer == nullptr && Data.Length == 0) {
-                        // Connection closed
-                        ConnectionClosed = true;
-                        break;
-                    } else {
-                        fwrite((char*)Data.Buffer, 1, Data.Length, stdout);
-                        ConsumedLength += Data.Length;
+                CxPlatEventWaitForever(ListenerContext.ConnectionReceivedEvent);
+                // Start reading from stdin until EOF is read.
+                QcConnection* Conn = ListenerContext.Connections[0]; // Get the first connection, since only one is allowed at a time.
+                Conn->SendBuffer = make_unique<uint8_t[]>(DefaultSendBufferSize);
+                Conn->SendQuicBuffer.Buffer = Conn->SendBuffer.get();
+                thread ReadStdIn(QcReadStdInThread, std::ref(*Conn));
+                ReadStdIn.detach();
+                bool ConnectionClosed = false;
+                do {
+                    unique_lock<mutex> Lock(Conn->RecvDataMutex);
+                    Conn->RecvDataCV.wait(
+                        Lock,
+                        [&Conn]{return Conn->RecvData.size() > 0;});
+                    uint64_t ConsumedLength = 0;
+                    for(auto& Data : Conn->RecvData) {
+                        if (Data.Buffer == nullptr && Data.Length == 0) {
+                            // Connection closed
+                            ConnectionClosed = true;
+                            break;
+                        } else {
+                            fwrite((char*)Data.Buffer, 1, Data.Length, stdout);
+                            ConsumedLength += Data.Length;
+                        }
                     }
-                }
-                fflush(stdout);
-                ListenerContext.ConnectionContext.RecvData.clear();
-                if (!ConnectionClosed) {
-                    ListenerContext.ConnectionContext.Stream->ReceiveComplete(ConsumedLength);
-                }
-            } while (!ConnectionClosed);
+                    fflush(stdout);
+                    Conn->RecvData.clear();
+                    if (!ConnectionClosed) {
+                        Conn->Stream->ReceiveComplete(ConsumedLength);
+                    }
+                } while (!ConnectionClosed);
+            } while (Wait);
         }
-        CxPlatEventWaitForever(ListenerContext.ConnectionContext.ConnectionShutdownEvent);
+        if (Wait) {
+            while (getchar() != '\n') {
+                Log() << "Press Enter to exit..." << endl;
+            }
+        } else {
+            CxPlatEventWaitForever(ListenerContext.ConnectionShutdownEvent);
+        }
         PrintTransferSummary(
-            ListenerContext.ConnectionContext.StartTime,
-            ListenerContext.ConnectionContext.EndTime,
-            ListenerContext.ConnectionContext.BytesReceived,
+            ListenerContext.TotalDuration,
+            ListenerContext.TotalBytesReceived,
             "received");
 
     } else if (TargetAddress != nullptr) {
@@ -811,7 +905,7 @@ int main(
             } while (!ConnectionContext.SendCanceled && !EndOfFile);
             CxPlatEventWaitForever(ConnectionContext.ConnectionShutdownEvent);
             auto StopTime = steady_clock::now();
-            PrintTransferSummary(StartTime, StopTime, TotalBytesSent, "sent");
+            PrintTransferSummary(StopTime - StartTime, TotalBytesSent, "sent");
         } else {
 #ifdef _WIN32
             // Windows converts \n to \r\n unless you set this
@@ -843,19 +937,18 @@ int main(
             } while (!ConnectionClosed);
             CxPlatEventWaitForever(ConnectionContext.ConnectionShutdownEvent);
             PrintTransferSummary(
-                ConnectionContext.StartTime,
-                ConnectionContext.EndTime,
+                ConnectionContext.EndTime - ConnectionContext.StartTime,
                 ConnectionContext.BytesReceived,
                 "received");
+        }
+
+        if (Wait) {
+            Log() << "Press any key to exit..." << endl;
+            getchar();
         }
     } else {
         Log() << "Error! You didn't specify listen or target!" << endl;
         return QUIC_STATUS_INVALID_STATE;
-    }
-
-    if (Wait) {
-        Log() << "Press any key to exit..." << endl;
-        getchar();
     }
 
     return 0;
